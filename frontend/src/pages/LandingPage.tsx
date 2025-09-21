@@ -11,7 +11,7 @@ const LandingPage: React.FC = () => {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <h1 className="text-2xl font-bold text-teal-600">ProjectManager</h1>
+                <h1 className="text-2xl font-bold text-teal-600">Project Manager</h1>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -25,7 +25,7 @@ const LandingPage: React.FC = () => {
                 to="/register"
                 className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
-                Get Started
+                Register
               </Link>
             </div>
           </div>
@@ -48,7 +48,7 @@ const LandingPage: React.FC = () => {
               to="/register"
               className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-lg text-lg font-medium transition-colors inline-flex items-center justify-center"
             >
-              Start Free Trial
+              Get Started
               <ArrowRight className="ml-2 h-5 w-5" />
             </Link>
             <Link
@@ -144,7 +144,7 @@ const LandingPage: React.FC = () => {
             Ready to get started?
           </h2>
           <p className="text-xl text-teal-100 mb-8 max-w-2xl mx-auto">
-            Join thousands of teams already using ProjectManager to streamline their workflow.
+            Join Project Manager and power your projects with tools built for collaboration and efficiency.
           </p>
           <Link
             to="/register"
@@ -160,7 +160,7 @@ const LandingPage: React.FC = () => {
       <footer className="bg-gray-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h3 className="text-2xl font-bold text-teal-400 mb-4">ProjectManager</h3>
+            <h3 className="text-2xl font-bold text-teal-400 mb-4">Project Manager</h3>
             <p className="text-gray-400 mb-4">
               The ultimate collaborative project management platform
             </p>
