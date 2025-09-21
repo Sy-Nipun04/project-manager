@@ -12,6 +12,7 @@ import noteRoutes from './routes/notes.js';
 import notificationRoutes from './routes/notifications.js';
 import { authenticateToken } from './middleware/auth.js';
 import { setupSocketHandlers } from './config/socket.js';
+import { startNotificationCleanup } from './utils/notificationCleanup.js';
 
 dotenv.config();
 
@@ -33,10 +34,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/project-manager', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/project-manager')
 .then(() => console.log('Connected to MongoDB'))
 .catch(err => console.error('MongoDB connection error:', err));
 
@@ -71,6 +69,9 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Start the notification cleanup scheduler
+  startNotificationCleanup();
 });
 
 export { io };

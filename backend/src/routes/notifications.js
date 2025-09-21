@@ -6,11 +6,25 @@ const router = express.Router();
 // Get user notifications
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, unreadOnly = false } = req.query;
+    const { page = 1, limit = 10, unreadOnly = false, last7Days = false } = req.query;
+    
+    // Automatically delete notifications older than 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    await Notification.deleteMany({
+      user: req.user._id,
+      createdAt: { $lt: sevenDaysAgo }
+    });
     
     const query = { user: req.user._id };
     if (unreadOnly === 'true') {
       query.isRead = false;
+    }
+    
+    // If last7Days is true, show all notifications from last 7 days
+    if (last7Days === 'true') {
+      query.createdAt = { $gte: sevenDaysAgo };
     }
 
     const notifications = await Notification.find(query)
@@ -19,13 +33,19 @@ router.get('/', async (req, res) => {
       .populate('data.note', 'title')
       .populate('data.user', 'fullName username email profileImage')
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(last7Days === 'true' ? 0 : limit * 1)  // No limit for 7-day view
+      .skip(last7Days === 'true' ? 0 : (page - 1) * limit);
 
     const total = await Notification.countDocuments(query);
     const unreadCount = await Notification.countDocuments({ 
       user: req.user._id, 
       isRead: false 
+    });
+
+    // Count notifications in last 7 days
+    const last7DaysCount = await Notification.countDocuments({
+      user: req.user._id,
+      createdAt: { $gte: sevenDaysAgo }
     });
 
     res.json({
@@ -34,7 +54,8 @@ router.get('/', async (req, res) => {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
         total,
-        unreadCount
+        unreadCount,
+        last7DaysCount
       }
     });
   } catch (error) {

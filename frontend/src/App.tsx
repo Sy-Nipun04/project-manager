@@ -12,6 +12,7 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetail from './pages/ProjectDetail';
 import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/NotificationsPage';
+import TeamsPage from './pages/TeamsPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -45,6 +46,11 @@ function App() {
                 <Route path="/projects" element={
                   <ProtectedRoute>
                     <ProjectsPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/teams" element={
+                  <ProtectedRoute>
+                    <TeamsPage />
                   </ProtectedRoute>
                 } />
                 <Route path="/project/:projectId" element={

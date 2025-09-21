@@ -190,7 +190,7 @@ router.post('/friend-request', [
 
     // Check if friend request already exists
     const existingRequest = targetUser.friendRequests.find(
-      req => req.user.toString() === req.user._id.toString() && req.status === 'pending'
+      friendReq => friendReq.user.toString() === req.user._id.toString() && friendReq.status === 'pending'
     );
 
     if (existingRequest) {

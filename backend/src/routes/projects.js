@@ -87,21 +87,35 @@ router.post('/', [
             invitedBy: req.user._id,
             role: 'viewer'
           });
-
-          // Create notification
-          await Notification.create({
-            user: user._id,
-            type: 'project_invitation',
-            title: 'Project Invitation',
-            message: `You've been invited to join the project "${name}"`,
-            data: { 
-              project: project._id,
-              invitation: project._id
-            }
-          });
         }
       }
+      
+      // Save to get invitation IDs
       await project.save();
+      
+      // Create notifications with correct invitation IDs
+      for (let i = 0; i < memberEmails.length; i++) {
+        const email = memberEmails[i];
+        const user = await User.findOne({ email });
+        if (user && user._id.toString() !== req.user._id.toString()) {
+          const invitation = project.invitations.find(inv => 
+            inv.user.toString() === user._id.toString()
+          );
+          
+          if (invitation) {
+            await Notification.create({
+              user: user._id,
+              type: 'project_invitation',
+              title: 'Project Invitation',
+              message: `You've been invited to join the project "${name}"`,
+              data: { 
+                project: project._id,
+                invitation: invitation._id.toString()  // Convert to string
+              }
+            });
+          }
+        }
+      }
     }
 
     // Populate and return project
@@ -265,6 +279,9 @@ router.post('/:projectId/invite', checkProjectAdmin, [
 
     await req.project.save();
 
+    // Get the invitation ID (last added invitation)
+    const invitationId = req.project.invitations[req.project.invitations.length - 1]._id;
+
     // Create notification
     await Notification.create({
       user: user._id,
@@ -273,7 +290,7 @@ router.post('/:projectId/invite', checkProjectAdmin, [
       message: `You've been invited to join the project "${req.project.name}" as ${role}`,
       data: { 
         project: projectId,
-        invitation: projectId
+        invitation: invitationId.toString()  // Convert to string
       }
     });
 
@@ -347,9 +364,49 @@ router.put('/:projectId/invitation/:invitationId', [
           }
         });
       }
+
+      // Notify the inviter about acceptance
+      await Notification.create({
+        user: invitation.invitedBy,
+        type: 'invitation_accepted',
+        title: 'Invitation Accepted',
+        message: `${req.user.fullName} accepted your invitation to join "${project.name}"`,
+        data: { 
+          project: project._id,
+          user: req.user._id
+        }
+      });
+    } else {
+      // Notify the inviter about decline
+      await Notification.create({
+        user: invitation.invitedBy,
+        type: 'invitation_declined',
+        title: 'Invitation Declined',
+        message: `${req.user.fullName} declined your invitation to join "${project.name}"`,
+        data: { 
+          project: project._id,
+          user: req.user._id
+        }
+      });
     }
 
     await project.save();
+
+    // Update the original notification to show it's been processed
+    await Notification.findOneAndUpdate(
+      { 
+        user: req.user._id,
+        type: 'project_invitation',
+        'data.project': projectId,
+        'data.invitation': invitationId 
+      },
+      { 
+        isRead: true,
+        readAt: new Date(),
+        'data.actionTaken': action === 'accept' ? 'accepted' : 'declined',
+        message: `You ${action === 'accept' ? 'accepted' : 'declined'} the invitation to join "${project.name}"`
+      }
+    );
 
     res.json({ 
       message: `Invitation ${action}ed successfully` 

@@ -20,7 +20,9 @@ const notificationSchema = new mongoose.Schema({
       'role_changed',
       'project_updated',
       'friend_request',
-      'friend_accepted'
+      'friend_accepted',
+      'invitation_accepted',
+      'invitation_declined'
     ],
     required: true
   },
@@ -52,8 +54,12 @@ const notificationSchema = new mongoose.Schema({
       ref: 'User'
     },
     invitation: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Project'
+      type: String  // Store as string since it's a subdocument ID
+    },
+    actionTaken: {
+      type: String,
+      enum: ['accepted', 'declined'],
+      default: null
     }
   },
   isRead: {

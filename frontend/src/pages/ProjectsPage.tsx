@@ -47,10 +47,23 @@ const ProjectsPage: React.FC = () => {
     memberEmails: []
   });
   const [memberEmailInput, setMemberEmailInput] = useState('');
+  const [friends, setFriends] = useState<User[]>([]);
+  const [filteredFriends, setFilteredFriends] = useState<User[]>([]);
+  const [showFriendsSuggestions, setShowFriendsSuggestions] = useState(false);
 
   useEffect(() => {
     fetchProjects();
+    fetchFriends();
   }, []);
+
+  const fetchFriends = async () => {
+    try {
+      const response = await api.get('/users/friends');
+      setFriends(response.data.friends);
+    } catch (err: any) {
+      console.error('Failed to fetch friends:', err);
+    }
+  };
 
   const fetchProjects = async () => {
     try {
@@ -82,16 +95,53 @@ const ProjectsPage: React.FC = () => {
       setCreateLoading(true);
       await api.post('/projects', createFormData);
       
+      // Show success message
+      setError(null);
+      
       // Reset form and refresh projects
       setCreateFormData({ name: '', description: '', memberEmails: [] });
       setMemberEmailInput('');
       setShowCreateForm(false);
+      setShowFriendsSuggestions(false);
       await fetchProjects();
+      
+      // Show invite sent notification if members were invited
+      if (createFormData.memberEmails.length > 0) {
+        alert(`Project created! Invitations sent to ${createFormData.memberEmails.length} member(s).`);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create project');
     } finally {
       setCreateLoading(false);
     }
+  };
+
+  const handleMemberInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setMemberEmailInput(value);
+    
+    if (value.length > 0) {
+      const filtered = friends.filter(friend => 
+        friend.fullName.toLowerCase().includes(value.toLowerCase()) ||
+        friend.username.toLowerCase().includes(value.toLowerCase()) ||
+        friend.email.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredFriends(filtered);
+      setShowFriendsSuggestions(true);
+    } else {
+      setShowFriendsSuggestions(false);
+    }
+  };
+
+  const addFriendToProject = (friend: User) => {
+    if (!createFormData.memberEmails.includes(friend.email)) {
+      setCreateFormData(prev => ({
+        ...prev,
+        memberEmails: [...prev.memberEmails, friend.email]
+      }));
+    }
+    setMemberEmailInput('');
+    setShowFriendsSuggestions(false);
   };
 
   const addMemberEmail = () => {
@@ -170,7 +220,14 @@ const ProjectsPage: React.FC = () => {
 
         {/* Create Project Form */}
         {showCreateForm && (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div 
+            className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowFriendsSuggestions(false);
+              }
+            }}
+          >
             <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
               <div className="mt-3">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Create New Project</h3>
@@ -209,22 +266,50 @@ const ProjectsPage: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Invite Team Members (Optional)
                     </label>
-                    <div className="flex space-x-2">
-                      <input
-                        type="email"
-                        value={memberEmailInput}
-                        onChange={(e) => setMemberEmailInput(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addMemberEmail())}
-                        className="flex-1 border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 sm:text-sm"
-                        placeholder="Enter email or username"
-                      />
-                      <button
-                        type="button"
-                        onClick={addMemberEmail}
-                        className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-gray-50 hover:bg-gray-100"
-                      >
-                        Add
-                      </button>
+                    <div className="relative">
+                      <div className="flex space-x-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="text"
+                            value={memberEmailInput}
+                            onChange={handleMemberInputChange}
+                            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addMemberEmail())}
+                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 sm:text-sm"
+                            placeholder="Enter email, username, or search friends..."
+                            onFocus={() => memberEmailInput.length > 0 && setShowFriendsSuggestions(true)}
+                          />
+                          
+                          {/* Friends suggestions dropdown */}
+                          {showFriendsSuggestions && filteredFriends.length > 0 && (
+                            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                              {filteredFriends.map((friend) => (
+                                <div
+                                  key={friend._id}
+                                  onClick={() => addFriendToProject(friend)}
+                                  className="px-4 py-2 hover:bg-gray-50 cursor-pointer flex items-center space-x-3"
+                                >
+                                  <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center">
+                                    <span className="text-sm font-medium text-teal-800">
+                                      {friend.fullName.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-900">{friend.fullName}</p>
+                                    <p className="text-xs text-gray-500">@{friend.username}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addMemberEmail}
+                          className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-gray-50 hover:bg-gray-100"
+                        >
+                          Add
+                        </button>
+                      </div>
                     </div>
                     
                     {createFormData.memberEmails.length > 0 && (
@@ -252,6 +337,7 @@ const ProjectsPage: React.FC = () => {
                         setShowCreateForm(false);
                         setCreateFormData({ name: '', description: '', memberEmails: [] });
                         setMemberEmailInput('');
+                        setShowFriendsSuggestions(false);
                       }}
                       className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                     >
@@ -302,7 +388,7 @@ const ProjectsPage: React.FC = () => {
                       </div>
                       
                       {project.description && (
-                        <p className="mt-1 text-sm text-gray-600 line-clamp-2">{project.description}</p>
+                        <p className="mt-1 text-sm text-gray-600 truncate">{project.description}</p>
                       )}
                       
                       <div className="mt-2 flex items-center space-x-4 text-sm text-gray-500">
