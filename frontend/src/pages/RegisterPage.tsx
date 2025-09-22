@@ -29,6 +29,27 @@ const RegisterPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Client-side validation
+    if (formData.fullName.trim().length < 2) {
+      toast.error('Full name must be at least 2 characters long');
+      return;
+    }
+    
+    if (formData.username.trim().length < 3) {
+      toast.error('Username must be at least 3 characters long');
+      return;
+    }
+    
+    if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
+      toast.error('Username can only contain letters, numbers, and underscores');
+      return;
+    }
+    
+    if (!formData.email.trim()) {
+      toast.error('Email is required');
+      return;
+    }
+    
     if (formData.password !== formData.confirmPassword) {
       toast.error('Passwords do not match');
       return;
@@ -112,9 +133,10 @@ const RegisterPage: React.FC = () => {
                   value={formData.username}
                   onChange={handleChange}
                   className="appearance-none rounded-md relative block w-full pl-10 pr-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500 focus:z-10 sm:text-sm"
-                  placeholder="Choose a username"
+                  placeholder="At least 3 characters (letters, numbers, underscore only)"
                 />
               </div>
+              <p className="mt-1 text-xs text-gray-500">Username must be 3-30 characters long and contain only letters, numbers, and underscores.</p>
             </div>
             
             <div>
