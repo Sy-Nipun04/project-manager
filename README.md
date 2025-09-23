@@ -375,6 +375,7 @@ This project is licensed under the ISC License. See the LICENSE file for details
 
 ## 📞 Support
 
-For support, email support@projectmanager.com or create an issue on GitHub.
+For support, create an issue on GitHub.
 
 ---
+
