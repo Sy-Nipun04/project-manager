@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/Layout';
-import api from '../lib/api';
+import Layout from '../../components/Layout';
+import api from '../../lib/api';
+import toast from 'react-hot-toast';
 import { 
   UserPlusIcon, 
   UserIcon, 
@@ -28,7 +29,7 @@ interface FriendRequest {
   createdAt: string;
 }
 
-const TeamsPage: React.FC = () => {
+const SocialPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
   const [friends, setFriends] = useState<User[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
@@ -90,19 +91,38 @@ const TeamsPage: React.FC = () => {
 
   const sendFriendRequest = async (userId: string) => {
     try {
+      // Find the user to get their name for the toast
+      const user = searchResults.find(u => u._id === userId);
+      
       await api.post('/users/friend-request', { userId });
       setError(null);
+      
+      // Show success toast
+      toast.success(`Friend request sent to ${user?.fullName || 'user'}!`);
+      
       // Remove user from search results after sending request
       setSearchResults(prev => prev.filter(user => user._id !== userId));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to send friend request');
+      toast.error(err.response?.data?.message || 'Failed to send friend request');
     }
   };
 
   const respondToFriendRequest = async (requestId: string, action: 'accept' | 'decline') => {
     try {
+      // Find the friend request to get the user's name for the toast
+      const friendRequest = friendRequests.find(req => req._id === requestId);
+      const userName = friendRequest?.user.fullName || 'user';
+      
       await api.put(`/users/friend-request/${requestId}`, { action });
       setError(null);
+      
+      // Show success toast
+      if (action === 'accept') {
+        toast.success(`You are now friends with ${userName}!`);
+      } else {
+        toast.success(`Friend request from ${userName} declined`);
+      }
       
       // Remove from friend requests
       setFriendRequests(prev => prev.filter(req => req._id !== requestId));
@@ -112,7 +132,9 @@ const TeamsPage: React.FC = () => {
         await fetchFriends();
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || `Failed to ${action} friend request`);
+      const errorMessage = err.response?.data?.message || `Failed to ${action} friend request`;
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -453,4 +475,4 @@ const TeamsPage: React.FC = () => {
   );
 };
 
-export default TeamsPage;
+export default SocialPage;

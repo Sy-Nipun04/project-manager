@@ -1,9 +1,10 @@
 import React from 'react';
-import Layout from '../components/Layout';
+import Layout from '../../components/Layout';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
 import { FolderOpen, CheckCircle, Clock, Users, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Project {
   _id: string;
@@ -25,38 +26,36 @@ interface Project {
   updatedAt: string;
 }
 
-interface Task {
-  _id: string;
-  title: string;
-  project: {
-    _id: string;
-    name: string;
-  };
-  column: string;
-  priority: string;
-  dueDate?: string;
-  assignedTo: Array<{
-    _id: string;
-    fullName: string;
-    username: string;
-  }>;
-}
+
 
 const Dashboard: React.FC = () => {
+  const { user } = useAuth();
+
   const { data: projects, isLoading: projectsLoading } = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', user?.id],
     queryFn: async () => {
       const response = await api.get('/projects');
       return response.data.projects;
-    }
+    },
+    enabled: !!user,
   });
 
   const { data: tasks, isLoading: tasksLoading } = useQuery({
-    queryKey: ['dashboard-tasks'],
+    queryKey: ['dashboard-tasks', user?.id],
     queryFn: async () => {
       const response = await api.get('/tasks/dashboard');
       return response.data;
-    }
+    },
+    enabled: !!user,
+  });
+
+  const { data: friends, isLoading: friendsLoading } = useQuery({
+    queryKey: ['friends', user?.id],
+    queryFn: async () => {
+      const response = await api.get('/users/friends');
+      return response.data.friends;
+    },
+    enabled: !!user,
   });
 
   const getFirstTodoTasks = () => {
@@ -80,25 +79,26 @@ const Dashboard: React.FC = () => {
   };
 
   const getStats = () => {
-    if (!projects || !tasks) return { totalProjects: 0, totalTasks: 0, completedTasks: 0, teamMembers: 0 };
+    const totalProjects = projects?.length || 0;
     
-    const totalProjects = projects.length;
+    if (!tasks) return { totalProjects, totalTasks: 0, completedTasks: 0, totalFriends: friends?.length || 0 };
+    
     const totalTasks = Object.values(tasks.tasksByProject || {}).reduce((acc: number, projectTasks: any) => {
       return acc + (projectTasks.todo?.length || 0) + (projectTasks.doing?.length || 0) + (projectTasks.done?.length || 0);
     }, 0);
     const completedTasks = Object.values(tasks.tasksByProject || {}).reduce((acc: number, projectTasks: any) => {
       return acc + (projectTasks.done?.length || 0);
     }, 0);
-    const teamMembers = new Set(projects.flatMap((p: Project) => p.members.map(m => m.user._id))).size;
+    const totalFriends = friends?.length || 0;
 
-    return { totalProjects, totalTasks, completedTasks, teamMembers };
+    return { totalProjects, totalTasks, completedTasks, totalFriends };
   };
 
   const stats = getStats();
   const firstTodoTasks = getFirstTodoTasks();
   const recentlyDoneTasks = getRecentlyDoneTasks();
 
-  if (projectsLoading || tasksLoading) {
+  if (projectsLoading || tasksLoading || friendsLoading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
@@ -161,8 +161,8 @@ const Dashboard: React.FC = () => {
                 <Users className="h-6 w-6 text-purple-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Team Members</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.teamMembers}</p>
+                <p className="text-sm font-medium text-gray-600">Friends</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalFriends}</p>
               </div>
             </div>
           </div>
@@ -172,7 +172,7 @@ const Dashboard: React.FC = () => {
           {/* First Tasks from Projects */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">First Tasks to Do</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Tasks</h2>
               <p className="text-sm text-gray-600">The first task from each of your projects</p>
             </div>
             <div className="p-6">

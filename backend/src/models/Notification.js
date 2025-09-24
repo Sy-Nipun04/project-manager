@@ -19,6 +19,7 @@ const notificationSchema = new mongoose.Schema({
       'member_removed',
       'role_changed',
       'project_updated',
+      'project_name_changed',
       'friend_request',
       'friend_accepted',
       'invitation_accepted',

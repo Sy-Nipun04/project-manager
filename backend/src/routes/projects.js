@@ -160,8 +160,9 @@ router.put('/:projectId/settings', checkProjectAdmin, [
       });
     }
 
-    const { name, description, doingColumnLimit } = req.body;
+    const { name, description, doingColumnLimit, notifyNameChange } = req.body;
     const updateData = {};
+    const oldProjectName = req.project.name;
 
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
@@ -177,6 +178,38 @@ router.put('/:projectId/settings', checkProjectAdmin, [
     .populate('creator', 'fullName username email profileImage')
     .populate('members.user', 'fullName username email profileImage');
 
+    // Send notifications to all members if name changed
+    if (notifyNameChange && name && name !== oldProjectName) {
+      console.log('Sending name change notifications to project members');
+      console.log(`Old name: "${oldProjectName}", New name: "${name}"`);
+      
+      const memberIds = project.members
+        .filter(member => member.user._id.toString() !== req.user._id.toString())
+        .map(member => member.user._id);
+
+      console.log(`Found ${memberIds.length} members to notify:`, memberIds);
+
+      for (const memberId of memberIds) {
+        try {
+          const notification = await Notification.create({
+            user: memberId,
+            type: 'project_name_changed',
+            title: 'Project Name Updated',
+            message: `The project "${oldProjectName}" has been renamed to "${name}" by ${req.user.fullName}`,
+            data: { 
+              project: project._id,
+              oldName: oldProjectName,
+              newName: name,
+              changedBy: req.user._id
+            }
+          });
+          console.log(`Notification created successfully for user ${memberId}:`, notification._id);
+        } catch (notificationError) {
+          console.error(`Failed to create notification for user ${memberId}:`, notificationError);
+        }
+      }
+    }
+
     res.json({
       message: 'Project settings updated successfully',
       project
@@ -190,8 +223,9 @@ router.put('/:projectId/settings', checkProjectAdmin, [
 // Update project markdown content
 router.put('/:projectId/markdown', checkProjectEditor, [
   body('content')
-    .notEmpty()
-    .withMessage('Markdown content is required')
+    .optional()
+    .isString()
+    .withMessage('Markdown content must be a string')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -202,13 +236,26 @@ router.put('/:projectId/markdown', checkProjectEditor, [
       });
     }
 
-    const { content } = req.body;
+    const { content = '' } = req.body;
+
+    console.log('Updating project markdown:', {
+      projectId: req.params.projectId,
+      contentLength: content.length,
+      content: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+    });
 
     const project = await Project.findByIdAndUpdate(
       req.params.projectId,
       { markdownContent: content },
       { new: true }
-    );
+    )
+    .populate('creator', 'fullName username email profileImage')
+    .populate('members.user', 'fullName username email profileImage');
+
+    console.log('Updated project markdown saved:', {
+      projectId: project._id,
+      markdownContentLength: project.markdownContent?.length || 0
+    });
 
     res.json({
       message: 'Markdown content updated successfully',
@@ -250,6 +297,11 @@ router.post('/:projectId/invite', checkProjectAdmin, [
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if user is trying to invite themselves
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot invite yourself to a project' });
     }
 
     // Check if user is already a member

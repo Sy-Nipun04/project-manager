@@ -322,8 +322,8 @@ router.post('/:taskId/comments', checkProjectAccess('viewer'), [
   }
 });
 
-// Delete task (admin only)
-router.delete('/:taskId', checkProjectAdmin, async (req, res) => {
+// Delete task (editors and admins)
+router.delete('/:taskId', checkProjectEditor, async (req, res) => {
   try {
     const task = await Task.findById(req.params.taskId);
     if (!task) {

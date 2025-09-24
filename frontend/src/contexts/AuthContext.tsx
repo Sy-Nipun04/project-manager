@@ -132,8 +132,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setUser(null);
       setToken(null);
+      
+      // Clear all localStorage items related to the application
       localStorage.removeItem('token');
+      localStorage.removeItem('selectedProject');
+      localStorage.removeItem('sidebarIsOpen');
+      
       delete api.defaults.headers.common['Authorization'];
+      
+      // Dispatch custom event to notify other components about logout
+      window.dispatchEvent(new CustomEvent('user-logout'));
     }
   };
 

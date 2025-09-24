@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/Layout';
-import api from '../lib/api';
+import Layout from '../../components/Layout';
+import api from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon } from '@heroicons/react/24/outline';
 
 interface User {
@@ -35,6 +37,8 @@ interface CreateProjectData {
 }
 
 const ProjectsPage: React.FC = () => {
+  const { user: currentUser } = useAuth();
+  const location = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +59,15 @@ const ProjectsPage: React.FC = () => {
     fetchProjects();
     fetchFriends();
   }, []);
+
+  // Check if we should open the create modal based on navigation state
+  useEffect(() => {
+    if (location.state && (location.state as any).openCreateModal) {
+      setShowCreateForm(true);
+      // Clear the state to prevent reopening on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const fetchFriends = async () => {
     try {
@@ -122,9 +135,10 @@ const ProjectsPage: React.FC = () => {
     
     if (value.length > 0) {
       const filtered = friends.filter(friend => 
-        friend.fullName.toLowerCase().includes(value.toLowerCase()) ||
+        friend._id !== (currentUser as any)?._id && // Exclude current user
+        (friend.fullName.toLowerCase().includes(value.toLowerCase()) ||
         friend.username.toLowerCase().includes(value.toLowerCase()) ||
-        friend.email.toLowerCase().includes(value.toLowerCase())
+        friend.email.toLowerCase().includes(value.toLowerCase()))
       );
       setFilteredFriends(filtered);
       setShowFriendsSuggestions(true);
@@ -145,10 +159,21 @@ const ProjectsPage: React.FC = () => {
   };
 
   const addMemberEmail = () => {
-    if (memberEmailInput.trim() && !createFormData.memberEmails.includes(memberEmailInput.trim())) {
+    const trimmedEmail = memberEmailInput.trim();
+    
+    if (!trimmedEmail) return;
+    
+    // Check if user is trying to add themselves
+    if (trimmedEmail.toLowerCase() === (currentUser as any)?.email?.toLowerCase() || 
+        trimmedEmail.toLowerCase() === (currentUser as any)?.username?.toLowerCase()) {
+      setError('You cannot add yourself to a project');
+      return;
+    }
+    
+    if (!createFormData.memberEmails.includes(trimmedEmail)) {
       setCreateFormData(prev => ({
         ...prev,
-        memberEmails: [...prev.memberEmails, memberEmailInput.trim()]
+        memberEmails: [...prev.memberEmails, trimmedEmail]
       }));
       setMemberEmailInput('');
     }

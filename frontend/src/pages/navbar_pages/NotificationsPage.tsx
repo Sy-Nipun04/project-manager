@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/Layout';
-import api from '../lib/api';
+import Layout from '../../components/Layout';
+import api from '../../lib/api';
 import { 
   BellIcon, 
   UserPlusIcon, 
   FolderOpenIcon, 
-  ClockIcon,
   CheckIcon,
   XMarkIcon,
   ExclamationTriangleIcon
@@ -13,7 +12,7 @@ import {
 
 interface Notification {
   _id: string;
-  type: 'friend_request' | 'friend_accepted' | 'project_invitation' | 'invitation_accepted' | 'invitation_declined' | 'member_added' | 'role_changed' | 'member_removed' | 'task_assigned' | 'note_created';
+  type: 'friend_accepted' | 'project_invitation' | 'invitation_accepted' | 'invitation_declined' | 'member_added' | 'role_changed' | 'member_removed' | 'task_assigned' | 'note_created';
   title: string;
   message: string;
   data?: {
@@ -28,6 +27,7 @@ interface Notification {
 
 const NotificationsPage: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLast7Days, setShowLast7Days] = useState(false);
@@ -50,7 +50,30 @@ const NotificationsPage: React.FC = () => {
       });
       
       const response = await api.get(`/notifications?${params}`);
-      setNotifications(response.data.notifications);
+      const fetchedNotifications = response.data.notifications;
+      
+      // Mark all unread notifications as read when the page loads
+      const unreadNotifications = fetchedNotifications.filter((n: Notification) => !n.isRead);
+      if (unreadNotifications.length > 0) {
+        try {
+          // Mark all notifications as read
+          await api.put('/notifications/mark-all-read');
+          
+          // Update the local state to reflect the read status
+          const updatedNotifications = fetchedNotifications.map((n: Notification) => ({
+            ...n,
+            isRead: true
+          }));
+          setNotifications(updatedNotifications);
+        } catch (markReadError) {
+          console.error('Failed to mark notifications as read:', markReadError);
+          // Still show notifications even if marking as read fails
+          setNotifications(fetchedNotifications);
+        }
+      } else {
+        setNotifications(fetchedNotifications);
+      }
+      
       setPagination(response.data.pagination);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch notifications');
@@ -59,67 +82,11 @@ const NotificationsPage: React.FC = () => {
     }
   };
 
-  const markAsRead = async (notificationId: string) => {
-    try {
-      await api.put(`/notifications/${notificationId}/read`);
-      setNotifications(prev => 
-        prev.map(notification => 
-          notification._id === notificationId 
-            ? { ...notification, isRead: true }
-            : notification
-        )
-      );
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to mark notification as read');
-    }
-  };
 
-  const markAllAsRead = async () => {
-    try {
-      await api.put('/notifications/mark-all-read');
-      setNotifications(prev => 
-        prev.map(notification => ({ ...notification, isRead: true }))
-      );
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to mark all notifications as read');
-    }
-  };
 
-  const handleFriendRequest = async (notificationId: string, action: 'accept' | 'decline') => {
-    try {
-      const notification = notifications.find(n => n._id === notificationId);
-      if (!notification?.data?.user) {
-        setError('Invalid notification data - missing user information');
-        return;
-      }
 
-      console.log('Handling friend request:', { notificationId, action, userData: notification.data });
 
-      // Find the friend request using the user search
-      const friendRequestsResponse = await api.get('/users/friend-requests');
-      const friendRequest = friendRequestsResponse.data.friendRequests.find(
-        (req: any) => req.user._id === notification.data?.user
-      );
 
-      if (!friendRequest) {
-        setError('Friend request not found - it may have already been processed');
-        return;
-      }
-
-      console.log('Found friend request:', friendRequest);
-
-      const response = await api.put(`/users/friend-request/${friendRequest._id}`, { action });
-      console.log('Friend request response:', response.data);
-      
-      // Mark notification as read and remove it from list
-      setNotifications(prev => prev.filter(n => n._id !== notificationId));
-      
-    } catch (err: any) {
-      console.error('Friend request error:', err);
-      const errorMessage = err.response?.data?.message || err.message || `Failed to ${action} friend request`;
-      setError(errorMessage);
-    }
-  };
 
   const handleProjectInvitation = async (notificationId: string, action: 'accept' | 'decline') => {
     try {
@@ -187,7 +154,6 @@ const NotificationsPage: React.FC = () => {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'friend_request':
       case 'friend_accepted':
         return <UserPlusIcon className="h-6 w-6 text-blue-600" />;
       case 'project_invitation':
@@ -222,7 +188,7 @@ const NotificationsPage: React.FC = () => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+
 
   if (loading) {
     return (
@@ -245,21 +211,9 @@ const NotificationsPage: React.FC = () => {
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
-            <p className="text-gray-600">Stay updated with project activities and invitations</p>
-          </div>
-          
-          {unreadCount > 0 && (
-            <button
-              onClick={markAllAsRead}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
-            >
-              <CheckIcon className="h-4 w-4 mr-2" />
-              Mark All Read
-            </button>
-          )}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
+          <p className="text-gray-600">Stay updated with project activities and invitations</p>
         </div>
 
         {error && (
@@ -301,11 +255,6 @@ const NotificationsPage: React.FC = () => {
             </div>
             
             <div className="text-sm text-gray-500">
-              {pagination.unreadCount > 0 && (
-                <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium mr-2">
-                  {pagination.unreadCount} unread
-                </span>
-              )}
               {showLast7Days ? `${notifications.length} total` : `Showing ${Math.min(10, notifications.length)} of ${pagination.total}`}
             </div>
           </div>
@@ -327,62 +276,32 @@ const NotificationsPage: React.FC = () => {
                     !notification.isRead ? 'bg-blue-50' : ''
                   }`}
                 >
-                  <div className="flex items-start space-x-4">
-                    <div className="flex-shrink-0">
-                      {getNotificationIcon(notification.type)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <h3 className="text-sm font-medium text-gray-900">
-                            {notification.title}
-                          </h3>
-                          {!notification.isRead && (
-                            <span className="inline-block h-2 w-2 bg-blue-600 rounded-full"></span>
-                          )}
+                      <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0">
+                          {getNotificationIcon(notification.type)}
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-500">
-                            {getTimeAgo(notification.createdAt)}
-                          </span>
-                          {!notification.isRead && (
-                            <button
-                              onClick={() => markAsRead(notification._id)}
-                              className="text-blue-600 hover:text-blue-700 text-sm"
-                            >
-                              Mark read
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <p className="mt-1 text-sm text-gray-600">
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <h3 className="text-sm font-medium text-gray-900">
+                                {notification.title}
+                              </h3>
+                              {!notification.isRead && (
+                                <span className="inline-block h-2 w-2 bg-blue-600 rounded-full"></span>
+                              )}
+                            </div>
+                            <span className="text-sm text-gray-500">
+                              {getTimeAgo(notification.createdAt)}
+                            </span>
+                          </div>                      <p className="mt-1 text-sm text-gray-600">
                         {notification.message}
                       </p>
 
-                      {/* Special handling for friend requests */}
-                      {notification.type === 'friend_request' && !notification.isRead && (
-                        <div className="mt-3 flex space-x-2">
-                          <button
-                            onClick={() => handleFriendRequest(notification._id, 'accept')}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none"
-                          >
-                            <CheckIcon className="h-3 w-3 mr-1" />
-                            Accept
-                          </button>
-                          <button
-                            onClick={() => handleFriendRequest(notification._id, 'decline')}
-                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
-                          >
-                            <XMarkIcon className="h-3 w-3 mr-1" />
-                            Decline
-                          </button>
-                        </div>
-                      )}
+
 
                       {/* Special handling for project invitations */}
-                      {notification.type === 'project_invitation' && !notification.isRead && !notification.data?.actionTaken && (
+                      {notification.type === 'project_invitation' && !notification.data?.actionTaken && (
                         <div className="mt-3 flex space-x-2">
                           <button
                             onClick={() => handleProjectInvitation(notification._id, 'accept')}
@@ -426,25 +345,12 @@ const NotificationsPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                ))}
             </div>
           )}
         </div>
 
-        {unreadCount > 0 && (
-          <div className="bg-teal-50 border border-teal-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <ClockIcon className="h-5 w-5 text-teal-400" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-teal-700">
-                  You have {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* Cleanup Information */}
         <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
