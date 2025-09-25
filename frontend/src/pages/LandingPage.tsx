@@ -165,7 +165,7 @@ const LandingPage: React.FC = () => {
               The ultimate collaborative project management platform
             </p>
             <p className="text-gray-500 text-sm">
-              © 2024 ProjectManager. All rights reserved.
+              © 2024 Project Manager. All rights reserved.
             </p>
           </div>
         </div>

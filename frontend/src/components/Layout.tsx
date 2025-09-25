@@ -109,7 +109,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <div className="h-8 w-8 bg-teal-600 rounded-lg flex items-center justify-center">
                     <span className="text-white font-bold text-sm">P</span>
                   </div>
-                  <span className="ml-2 text-xl font-bold text-gray-900">ProjectManager</span>
+                  <span className="ml-2 text-xl font-bold text-gray-900">Project Manager</span>
                 </Link>
 
                 {/* Desktop Navigation */}
