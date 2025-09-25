@@ -436,7 +436,7 @@ const ProjectTeamPage: React.FC = () => {
                         </div>
                         <p className="text-sm text-gray-600">@{member.user.username}</p>
                         <p className="text-xs text-gray-500">
-                          Joined {new Date(member.joinedAt).toLocaleDateString()}
+                          Joined {new Date(member.joinedAt).toLocaleDateString('en-GB')}
                         </p>
                       </div>
                     </div>
@@ -521,7 +521,7 @@ const ProjectTeamPage: React.FC = () => {
                           </p>
                           <p className="text-sm text-gray-600">@{invitation.user?.username || 'unknown'}</p>
                           <p className="text-xs text-gray-500">
-                            Invited {new Date(invitation.createdAt).toLocaleDateString()} • Role: {invitation.role}
+                            Invited {new Date(invitation.createdAt).toLocaleDateString('en-GB')} • Role: {invitation.role}
                           </p>
                         </div>
                       </div>

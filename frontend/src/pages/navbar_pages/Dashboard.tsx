@@ -187,7 +187,7 @@ const Dashboard: React.FC = () => {
                         </p>
                         {task.dueDate && (
                           <p className="text-xs text-gray-500 mt-1">
-                            Due: {new Date(task.dueDate).toLocaleDateString()}
+                            Due: {new Date(task.dueDate).toLocaleDateString('en-GB')}
                           </p>
                         )}
                       </div>
@@ -236,7 +236,7 @@ const Dashboard: React.FC = () => {
                           From <span className="font-medium">{task.project?.name}</span>
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Completed: {new Date(task.updatedAt).toLocaleDateString()}
+                          Completed: {new Date(task.updatedAt).toLocaleDateString('en-GB')}
                         </p>
                       </div>
                       <div className="flex items-center">

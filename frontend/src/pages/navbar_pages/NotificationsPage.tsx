@@ -184,7 +184,7 @@ const NotificationsPage: React.FC = () => {
     } else if (diffDays < 7) {
       return `${diffDays}d ago`;
     } else {
-      return date.toLocaleDateString();
+      return date.toLocaleDateString('en-GB');
     }
   };
 

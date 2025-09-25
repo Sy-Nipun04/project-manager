@@ -442,7 +442,7 @@ const SocialPage: React.FC = () => {
                           <p className="text-sm font-medium text-gray-900">{request.user.fullName}</p>
                           <p className="text-sm text-gray-500">@{request.user.username}</p>
                           <p className="text-xs text-gray-400">
-                            Sent {new Date(request.createdAt).toLocaleDateString()}
+                            Sent {new Date(request.createdAt).toLocaleDateString('en-GB')}
                           </p>
                         </div>
                       </div>

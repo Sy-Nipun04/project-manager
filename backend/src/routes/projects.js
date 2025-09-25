@@ -3,9 +3,31 @@ import { body, validationResult } from 'express-validator';
 import Project from '../models/Project.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
+import Note from '../models/Note.js';
+import Task from '../models/Task.js';
+import Bookmark from '../models/Bookmark.js';
+import Activity from '../models/Activity.js';
 import { checkProjectAccess, checkProjectAdmin, checkProjectEditor } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Helper function to add bookmark status to notes for a specific user
+const addBookmarkStatusToNotes = async (notes, userId) => {
+  const noteIds = notes.map(note => note._id);
+  const userBookmarks = await Bookmark.find({
+    user: userId,
+    note: { $in: noteIds }
+  });
+  
+  const bookmarkedNoteIds = new Set(userBookmarks.map(bookmark => bookmark.note.toString()));
+  
+  return notes.map(note => ({
+    ...note.toObject(),
+    author: note.createdBy, // Map createdBy to author for frontend compatibility
+    taggedMembers: note.taggedUsers, // Map taggedUsers to taggedMembers for frontend compatibility
+    isBookmarked: bookmarkedNoteIds.has(note._id.toString())
+  }));
+};
 
 // Get user's projects
 router.get('/', async (req, res) => {
@@ -221,7 +243,7 @@ router.put('/:projectId/settings', checkProjectAdmin, [
 });
 
 // Update project markdown content
-router.put('/:projectId/markdown', checkProjectEditor, [
+router.put('/:projectId/markdown', checkProjectAdmin, [
   body('content')
     .optional()
     .isString()
@@ -585,6 +607,495 @@ router.delete('/:projectId', checkProjectAdmin, [
     res.json({ message: 'Project deleted successfully' });
   } catch (error) {
     console.error('Delete project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ============ NOTES ROUTES ============
+
+// Get notes for a project
+router.get('/:projectId/notes', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    const notes = await Note.find({
+      project: req.params.projectId
+    })
+    .populate('createdBy', 'fullName username email')
+    .populate('taggedUsers', 'fullName username email')
+    .populate('referencedTasks', 'title status')
+    .sort({ createdAt: -1, updatedAt: -1 }); // Sort by most recent first
+
+    // Add user-specific bookmark status
+    const notesFormatted = await addBookmarkStatusToNotes(notes, req.user._id);
+
+    // Sort notes with important notes at the top, then by latest update time
+    const sortedNotes = notesFormatted.sort((a, b) => {
+      // If one is important and other is not, important comes first
+      if (a.type === 'important' && b.type !== 'important') return -1;
+      if (b.type === 'important' && a.type !== 'important') return 1;
+      
+      // If both are important or both are not important, sort by update time (latest first)
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+    res.json({ notes: sortedNotes });
+  } catch (error) {
+    console.error('Get notes error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create new note
+router.post('/:projectId/notes', checkProjectAccess('editor'), [
+  body('title')
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Note title must be between 1 and 200 characters'),
+  body('content')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Note content is required'),
+  body('type')
+    .isIn(['notice', 'issue', 'reminder', 'important', 'other'])
+    .withMessage('Note type must be notice, issue, reminder, important, or other'),
+  body('taggedMembers')
+    .optional()
+    .isArray()
+    .withMessage('Tagged members must be an array'),
+  body('referencedTasks')
+    .optional()
+    .isArray()
+    .withMessage('Referenced tasks must be an array')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const { title, content, type, taggedMembers = [], referencedTasks = [] } = req.body;
+
+    // Filter out the current user from tagged members (user shouldn't tag themselves)
+    const filteredTaggedMembers = taggedMembers.filter(
+      memberId => memberId.toString() !== req.user._id.toString()
+    );
+
+    // Create note
+    const note = new Note({
+      title,
+      content,
+      project: req.params.projectId,
+      type,
+      createdBy: req.user._id,
+      taggedUsers: filteredTaggedMembers,
+      referencedTasks
+    });
+
+    await note.save();
+
+    // Populate note
+    await note.populate([
+      { path: 'createdBy', select: 'fullName username email' },
+      { path: 'taggedUsers', select: 'fullName username email' },
+      { path: 'referencedTasks', select: 'title status' }
+    ]);
+
+    // Create notifications for tagged members
+    for (const memberId of filteredTaggedMembers) {
+      await Notification.create({
+        user: memberId,
+        type: 'note_tagged',
+        title: 'Tagged in Note',
+        message: `You have been tagged by ${req.user.fullName} in a note "${title}" in project "${req.project.name}"`,
+        data: { 
+          project: req.params.projectId,
+          note: note._id,
+          creator: req.user._id
+        }
+      });
+    }
+
+    // Create notifications for all project members if note is important or reminder
+    if (type === 'important' || type === 'reminder') {
+      const memberIds = req.project.members
+        .filter(member => member.user.toString() !== req.user._id.toString())
+        .map(member => member.user);
+
+      for (const memberId of memberIds) {
+        await Notification.create({
+          user: memberId,
+          type: 'note_created',
+          title: type === 'important' ? 'Important Note Created' : 'Reminder Note Created',
+          message: `A ${type} note "${title}" has been created by ${req.user.fullName} in project "${req.project.name}"`,
+          data: { 
+            project: req.params.projectId,
+            note: note._id
+          }
+        });
+      }
+    }
+
+    // Create activity record
+    await Activity.create({
+      project: req.params.projectId,
+      user: req.user._id,
+      type: 'note_created',
+      action: `Created note: ${title}`,
+      targetId: note._id,
+      targetTitle: title
+    });
+
+    // Format note for frontend compatibility with user-specific bookmark status
+    const [noteFormatted] = await addBookmarkStatusToNotes([note], req.user._id);
+
+    res.status(201).json({
+      message: 'Note created successfully',
+      note: noteFormatted
+    });
+  } catch (error) {
+    console.error('Create note error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update note
+router.put('/:projectId/notes/:noteId', checkProjectAccess('viewer'), [
+  body('title')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Note title must be between 1 and 200 characters'),
+  body('content')
+    .optional()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Note content is required'),
+  body('type')
+    .optional()
+    .isIn(['notice', 'issue', 'reminder', 'important', 'other'])
+    .withMessage('Note type must be notice, issue, reminder, important, or other'),
+  body('taggedMembers')
+    .optional()
+    .isArray()
+    .withMessage('Tagged members must be an array'),
+  body('referencedTasks')
+    .optional()
+    .isArray()
+    .withMessage('Referenced tasks must be an array')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const note = await Note.findById(req.params.noteId);
+    if (!note) {
+      return res.status(404).json({ message: 'Note not found' });
+    }
+
+    // Check if user can edit this note (only author or admins/editors can edit)
+    const userRole = req.project.members.find(m => m.user.toString() === req.user._id.toString())?.role;
+    const canEdit = note.createdBy.toString() === req.user._id.toString() || 
+                   ['admin', 'editor'].includes(userRole);
+
+    if (!canEdit) {
+      return res.status(403).json({ message: 'You can only edit your own notes' });
+    }
+
+    const { title, content, type, taggedMembers, referencedTasks } = req.body;
+    
+    // Filter out the current user from tagged members (user shouldn't tag themselves)
+    const filteredTaggedMembers = taggedMembers ? taggedMembers.filter(
+      memberId => memberId.toString() !== req.user._id.toString()
+    ) : undefined;
+
+    const updateData = {};
+
+    if (title !== undefined) updateData.title = title;
+    if (content !== undefined) updateData.content = content;
+    if (type !== undefined) updateData.type = type;
+    if (taggedMembers !== undefined) updateData.taggedUsers = filteredTaggedMembers;
+    if (referencedTasks !== undefined) updateData.referencedTasks = referencedTasks;
+
+    // Check if note is being changed to important
+    const wasImportant = note.type === 'important';
+    const isNowImportant = type === 'important';
+
+    const updatedNote = await Note.findByIdAndUpdate(
+      req.params.noteId,
+      updateData,
+      { new: true, runValidators: true }
+    )
+    .populate('createdBy', 'fullName username email')
+    .populate('taggedUsers', 'fullName username email')
+    .populate('referencedTasks', 'title status');
+
+    // Check if note is being changed to reminder
+    const wasReminder = note.type === 'reminder';
+    const isNowReminder = type === 'reminder';
+
+    // Create notifications if changed to important or reminder
+    if ((!wasImportant && isNowImportant) || (!wasReminder && isNowReminder)) {
+      const memberIds = req.project.members
+        .filter(member => member.user.toString() !== req.user._id.toString())
+        .map(member => member.user);
+
+      for (const memberId of memberIds) {
+        await Notification.create({
+          user: memberId,
+          type: 'note_created',
+          title: isNowImportant ? 'Note Marked Important' : 'Note Marked as Reminder',
+          message: `A note "${updatedNote.title}" has been marked as ${isNowImportant ? 'important' : 'a reminder'} by ${req.user.fullName} in project "${req.project.name}"`,
+          data: { 
+            project: req.params.projectId,
+            note: updatedNote._id
+          }
+        });
+      }
+    }
+
+    // Create notifications for newly tagged members
+    if (filteredTaggedMembers) {
+      for (const memberId of filteredTaggedMembers) {
+        if (!note.taggedUsers.includes(memberId)) {
+          await Notification.create({
+            user: memberId,
+            type: 'note_tagged',
+            title: 'Tagged in Note',
+            message: `You have been tagged by ${req.user.fullName} in a note "${updatedNote.title}" in project "${req.project.name}"`,
+            data: { 
+              project: req.params.projectId,
+              note: updatedNote._id,
+              creator: req.user._id
+            }
+          });
+        }
+      }
+    }
+
+    // Create activity record for update
+    await Activity.create({
+      project: req.params.projectId,
+      user: req.user._id,
+      type: 'note_updated',
+      action: `Updated note: ${updatedNote.title}`,
+      targetId: updatedNote._id,
+      targetTitle: updatedNote.title
+    });
+
+    // Format note for frontend compatibility with user-specific bookmark status
+    const [noteFormatted] = await addBookmarkStatusToNotes([updatedNote], req.user._id);
+
+    res.json({
+      message: 'Note updated successfully',
+      note: noteFormatted
+    });
+  } catch (error) {
+    console.error('Update note error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete note
+router.delete('/:projectId/notes/:noteId', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.noteId);
+    if (!note) {
+      return res.status(404).json({ message: 'Note not found' });
+    }
+
+    // Check if user can delete this note (only author or admins/editors can delete)
+    const userMember = req.project.members.find(m => {
+      const memberId = typeof m.user === 'string' ? m.user : m.user._id || m.user;
+      return memberId.toString() === req.user._id.toString();
+    });
+    
+    const userRole = userMember?.role;
+    const isAuthor = note.createdBy.toString() === req.user._id.toString();
+    const isAdmin = userRole === 'admin';
+    
+    // Permission logic: Authors can delete their own notes, Admins can delete any notes
+    const canDelete = isAuthor || isAdmin;
+    
+    if (!canDelete) {
+      const message = userRole === 'editor' 
+        ? 'Editors can only delete their own notes.' 
+        : 'You do not have permission to delete this note. Only note authors and admins can delete notes.';
+      
+      return res.status(403).json({ message });
+    }
+
+    // Create activity record before deletion (while we still have note data)
+    await Activity.create({
+      project: req.params.projectId,
+      user: req.user._id,
+      type: 'note_deleted',
+      action: `Deleted note: ${note.title}`,
+      targetId: note._id,
+      targetTitle: note.title
+    });
+
+    // Delete the note
+    await Note.findByIdAndDelete(req.params.noteId);
+    
+    // Clean up associated bookmarks
+    await Bookmark.deleteMany({ note: req.params.noteId });
+
+    res.json({ message: 'Note deleted successfully' });
+  } catch (error) {
+    console.error('Delete note error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Toggle bookmark (user-specific bookmarks)
+router.post('/:projectId/notes/:noteId/bookmark', checkProjectAccess('viewer'), [
+  body('bookmark')
+    .isBoolean()
+    .withMessage('Bookmark must be a boolean')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const note = await Note.findById(req.params.noteId);
+    if (!note) {
+      return res.status(404).json({ message: 'Note not found' });
+    }
+
+    const { bookmark } = req.body;
+    
+    if (bookmark) {
+      // Add bookmark (create if doesn't exist)
+      await Bookmark.findOneAndUpdate(
+        {
+          user: req.user._id,
+          note: req.params.noteId,
+          project: req.params.projectId
+        },
+        {
+          user: req.user._id,
+          note: req.params.noteId,
+          project: req.params.projectId
+        },
+        {
+          upsert: true,
+          new: true
+        }
+      );
+    } else {
+      // Remove bookmark
+      await Bookmark.findOneAndDelete({
+        user: req.user._id,
+        note: req.params.noteId
+      });
+    }
+
+    res.json({ 
+      message: bookmark ? 'Note bookmarked' : 'Bookmark removed',
+      isBookmarked: bookmark
+    });
+  } catch (error) {
+    console.error('Toggle bookmark error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get bookmarked notes (user-specific bookmarks)
+router.get('/:projectId/notes/bookmarks', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    // Get user's bookmarks for this project
+    const bookmarks = await Bookmark.find({
+      user: req.user._id,
+      project: req.params.projectId
+    }).populate({
+      path: 'note',
+      populate: [
+        { path: 'createdBy', select: 'fullName username email' },
+        { path: 'taggedUsers', select: 'fullName username email' },
+        { path: 'referencedTasks', select: 'title status' }
+      ]
+    }).sort({ createdAt: -1 });
+
+    // Format notes for frontend compatibility
+    const notesFormatted = bookmarks
+      .filter(bookmark => bookmark.note) // Filter out bookmarks where note might be deleted
+      .map(bookmark => ({
+        ...bookmark.note.toObject(),
+        author: bookmark.note.createdBy, // Map createdBy to author for frontend compatibility
+        taggedMembers: bookmark.note.taggedUsers, // Map taggedUsers to taggedMembers for frontend compatibility
+        isBookmarked: true
+      }));
+
+    res.json({ notes: notesFormatted });
+  } catch (error) {
+    console.error('Get bookmarked notes error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get notes activity
+router.get('/:projectId/notes/activity', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    // Keep only the 15 most recent activities, delete older ones
+    const allActivities = await Activity.find({
+      project: req.params.projectId,
+      type: { $in: ['note_created', 'note_updated', 'note_deleted'] }
+    })
+    .sort({ createdAt: -1 })
+    .select('_id');
+
+    // If we have more than 15 activities, delete the older ones
+    if (allActivities.length > 15) {
+      const activitiesToKeep = allActivities.slice(0, 15);
+      const activityIdsToKeep = activitiesToKeep.map(activity => activity._id);
+      
+      await Activity.deleteMany({
+        project: req.params.projectId,
+        type: { $in: ['note_created', 'note_updated', 'note_deleted'] },
+        _id: { $nin: activityIdsToKeep }
+      });
+    }
+
+    // Get recent activities for this project related to notes
+    const activities = await Activity.find({
+      project: req.params.projectId,
+      type: { $in: ['note_created', 'note_updated', 'note_deleted'] }
+    })
+    .populate('user', 'fullName username email')
+    .sort({ createdAt: -1 })
+    .limit(15);
+
+    res.json({ activities });
+  } catch (error) {
+    console.error('Get notes activity error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get tasks for referencing
+router.get('/:projectId/tasks', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    const tasks = await Task.find({
+      project: req.params.projectId
+    })
+    .select('title status')
+    .sort({ createdAt: -1 });
+
+    res.json({ tasks });
+  } catch (error) {
+    console.error('Get tasks error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -13,6 +13,7 @@ import notificationRoutes from './routes/notifications.js';
 import { authenticateToken } from './middleware/auth.js';
 import { setupSocketHandlers } from './config/socket.js';
 import { startNotificationCleanup } from './utils/notificationCleanup.js';
+import { startActivityCleanup } from './utils/activityCleanup.js';
 
 dotenv.config();
 
@@ -70,8 +71,9 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   
-  // Start the notification cleanup scheduler
+  // Start the cleanup schedulers
   startNotificationCleanup();
+  startActivityCleanup();
 });
 
 export { io };

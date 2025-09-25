@@ -339,7 +339,7 @@ const ProjectInfoPage: React.FC = () => {
                         <div className="flex items-center space-x-2">
                           <div className="w-2 h-2 bg-teal-500 rounded-full"></div>
                           <p className="font-medium text-gray-900">
-                            {new Date(project.createdAt).toLocaleDateString('en-US', {
+                            {new Date(project.createdAt).toLocaleDateString('en-GB', {
                               year: 'numeric',
                               month: 'long',
                               day: 'numeric'
@@ -347,7 +347,7 @@ const ProjectInfoPage: React.FC = () => {
                           </p>
                         </div>
                         <p className="text-xs text-gray-500 mt-1 ml-4">
-                          {new Date(project.createdAt).toLocaleTimeString('en-US', {
+                          {new Date(project.createdAt).toLocaleTimeString('en-GB', {
                             hour: '2-digit',
                             minute: '2-digit'
                           })}
@@ -364,7 +364,7 @@ const ProjectInfoPage: React.FC = () => {
                         <div className="flex items-center space-x-2">
                           <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                           <p className="font-medium text-gray-900">
-                            {new Date(project.updatedAt).toLocaleDateString('en-US', {
+                            {new Date(project.updatedAt).toLocaleDateString('en-GB', {
                               year: 'numeric',
                               month: 'long',
                               day: 'numeric'
@@ -372,7 +372,7 @@ const ProjectInfoPage: React.FC = () => {
                           </p>
                         </div>
                         <p className="text-xs text-gray-500 mt-1 ml-4">
-                          {new Date(project.updatedAt).toLocaleTimeString('en-US', {
+                          {new Date(project.updatedAt).toLocaleTimeString('en-GB', {
                             hour: '2-digit',
                             minute: '2-digit'
                           })}
@@ -523,13 +523,13 @@ const ProjectInfoPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Created</span>
                   <span className="font-medium text-gray-900">
-                    {new Date(project.createdAt).toLocaleDateString()}
+                    {new Date(project.createdAt).toLocaleDateString('en-GB')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Last Updated</span>
                   <span className="font-medium text-gray-900">
-                    {new Date(project.updatedAt).toLocaleDateString()}
+                    {new Date(project.updatedAt).toLocaleDateString('en-GB')}
                   </span>
                 </div>
               </div>

@@ -17,7 +17,7 @@ export function hasMinimumRole(userRole: UserRole, requiredRole: UserRole): bool
 // Check if user can perform specific actions
 export const permissions = {
   // Project management
-  canEditProjectInfo: (role: UserRole) => hasMinimumRole(role, 'editor'),
+  canEditProjectInfo: (role: UserRole) => hasMinimumRole(role, 'admin'),
   canArchiveProject: (role: UserRole) => hasMinimumRole(role, 'admin'),
   canDeleteProject: (role: UserRole) => hasMinimumRole(role, 'admin'),
   canManageSettings: (role: UserRole) => hasMinimumRole(role, 'admin'),

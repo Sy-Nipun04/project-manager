@@ -1,31 +1,96 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { 
   DocumentTextIcon, 
   PlusIcon, 
-  MagnifyingGlassIcon, 
-  FolderIcon,
-  ClockIcon,
-  UserIcon,
   PencilIcon,
   TrashIcon,
-  BookmarkIcon
+  ExclamationTriangleIcon,
+  BookmarkIcon,
+  ClockIcon,
+  TagIcon,
+  UserGroupIcon,
+  BellIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
-import { 
-  DocumentTextIcon as DocumentTextIconSolid,
-  BookmarkIcon as BookmarkIconSolid 
-} from '@heroicons/react/24/solid';
+import { BookmarkIcon as BookmarkSolidIcon } from '@heroicons/react/24/solid';
+import toast from 'react-hot-toast';
+
+interface Note {
+  _id: string;
+  title: string;
+  content: string;
+  type: 'notice' | 'issue' | 'reminder' | 'important' | 'other';
+  author: {
+    _id: string;
+    fullName: string;
+    username: string;
+  };
+  taggedMembers: Array<{
+    _id: string;
+    fullName: string;
+    username: string;
+  }>;
+  referencedTasks: Array<{
+    _id: string;
+    title: string;
+    status: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+  isBookmarked?: boolean;
+}
+
+interface Task {
+  _id: string;
+  title: string;
+  status: 'todo' | 'doing' | 'done';
+}
+
+interface Member {
+  user: {
+    _id: string;
+    fullName: string;
+    username: string;
+  };
+  role: string;
+}
 
 const ProjectNotesPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
-  const { can, isMember } = usePermissions();
+  const { user: currentUser } = useAuth();
+  const { can, isMember, userRole } = usePermissions();
+  const queryClient = useQueryClient();
+  
+  const [activeTab, setActiveTab] = useState<'all' | 'bookmarks' | 'activity'>('all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [showImportantConfirm, setShowImportantConfirm] = useState(false);
+  const [pendingNoteData, setPendingNoteData] = useState<any>(null);
+  
+  // Form state
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [noteType, setNoteType] = useState<'notice' | 'issue' | 'reminder' | 'important' | 'other'>('notice');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
 
+  // Original values for change detection in edit mode
+  const [originalTitle, setOriginalTitle] = useState('');
+  const [originalContent, setOriginalContent] = useState('');
+  const [originalType, setOriginalType] = useState<'notice' | 'issue' | 'reminder' | 'important' | 'other'>('notice');
+  const [originalMembers, setOriginalMembers] = useState<string[]>([]);
+  const [originalTasks, setOriginalTasks] = useState<string[]>([]);
+
+  // Fetch project data
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: async () => {
@@ -35,12 +100,338 @@ const ProjectNotesPage: React.FC = () => {
     enabled: !!projectId
   });
 
-  // Auto-select the project in sidebar when viewing it
+  // Fetch notes
+  const { data: notes, isLoading: notesLoading } = useQuery({
+    queryKey: ['notes', projectId],
+    queryFn: async () => {
+      const response = await api.get(`/projects/${projectId}/notes`);
+      return response.data.notes;
+    },
+    enabled: !!projectId
+  });
+
+  // Fetch tasks for referencing
+  const { data: tasks } = useQuery({
+    queryKey: ['project-tasks', projectId],
+    queryFn: async () => {
+      const response = await api.get(`/projects/${projectId}/tasks`);
+      return response.data.tasks;
+    },
+    enabled: !!projectId
+  });
+
+  // Fetch bookmarked notes
+  const { data: bookmarkedNotes } = useQuery({
+    queryKey: ['bookmarked-notes', projectId],
+    queryFn: async () => {
+      const response = await api.get(`/projects/${projectId}/notes/bookmarks`);
+      return response.data.notes;
+    },
+    enabled: !!projectId && activeTab === 'bookmarks'
+  });
+
+  // Fetch recent activity
+  const { data: recentActivity } = useQuery({
+    queryKey: ['notes-activity', projectId],
+    queryFn: async () => {
+      const response = await api.get(`/projects/${projectId}/notes/activity`);
+      return response.data.activities;
+    },
+    enabled: !!projectId && activeTab === 'activity'
+  });
+
+  // Auto-select the project in sidebar
   useEffect(() => {
     if (project && (!selectedProject || selectedProject._id !== project._id)) {
       setSelectedProject(project);
     }
   }, [project, selectedProject, setSelectedProject]);
+
+  // Create note mutation
+  const createNoteMutation = useMutation({
+    mutationFn: async (noteData: any) => {
+      const response = await api.post(`/projects/${projectId}/notes`, noteData);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+      resetForm();
+      setShowCreateModal(false);
+      toast.success('Note created successfully');
+    },
+    onError: (error: any) => {
+      // Clear pending important note data on error
+      setPendingNoteData(null);
+      setShowImportantConfirm(false);
+      toast.error(error.response?.data?.message || 'Failed to create note');
+    }
+  });
+
+  // Update note mutation
+  const updateNoteMutation = useMutation({
+    mutationFn: async ({ noteId, noteData }: { noteId: string; noteData: any }) => {
+      const response = await api.put(`/projects/${projectId}/notes/${noteId}`, noteData);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+      resetForm();
+      setShowEditModal(false);
+      setEditingNote(null);
+      toast.success('Note updated successfully');
+    },
+    onError: (error: any) => {
+      // Clear pending important note data on error
+      setPendingNoteData(null);
+      setShowImportantConfirm(false);
+      toast.error(error.response?.data?.message || 'Failed to update note');
+    }
+  });
+
+  // Delete note mutation
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId: string) => {
+      const response = await api.delete(`/projects/${projectId}/notes/${noteId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+      toast.success('Note deleted successfully');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to delete note');
+    }
+  });
+
+  // Bookmark note mutation
+  const bookmarkMutation = useMutation({
+    mutationFn: async ({ noteId, bookmark }: { noteId: string; bookmark: boolean }) => {
+      const response = await api.post(`/projects/${projectId}/notes/${noteId}/bookmark`, { bookmark });
+      return response.data;
+    },
+    onMutate: async ({ noteId, bookmark }) => {
+      // Cancel outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: ['notes', projectId] });
+      await queryClient.cancelQueries({ queryKey: ['bookmarked-notes', projectId] });
+
+      // Snapshot the previous values
+      const previousNotes = queryClient.getQueryData(['notes', projectId]);
+      const previousBookmarkedNotes = queryClient.getQueryData(['bookmarked-notes', projectId]);
+
+      // Optimistically update the notes list
+      queryClient.setQueryData(['notes', projectId], (old: any) => {
+        if (!old?.notes) return old;
+        return {
+          ...old,
+          notes: old.notes.map((note: Note) => 
+            note._id === noteId ? { ...note, isBookmarked: bookmark } : note
+          )
+        };
+      });
+
+      // Return a context object with the snapshotted values
+      return { previousNotes, previousBookmarkedNotes };
+    },
+    onError: (error: any, _variables, context) => {
+      // Rollback on error
+      if (context?.previousNotes) {
+        queryClient.setQueryData(['notes', projectId], context.previousNotes);
+      }
+      if (context?.previousBookmarkedNotes) {
+        queryClient.setQueryData(['bookmarked-notes', projectId], context.previousBookmarkedNotes);
+      }
+      toast.error(error.response?.data?.message || 'Failed to update bookmark');
+    },
+    onSuccess: (_, variables) => {
+      toast.success(variables.bookmark ? 'Note bookmarked' : 'Bookmark removed');
+    },
+    onSettled: () => {
+      // Always refetch after error or success to sync with server
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+    }
+  });
+
+  // Helper function to detect if there are any changes in the edit form
+  const hasChanges = () => {
+    if (!editingNote) return false;
+    
+    return (
+      noteTitle !== originalTitle ||
+      noteContent !== originalContent ||
+      noteType !== originalType ||
+      JSON.stringify(selectedMembers.sort()) !== JSON.stringify(originalMembers.sort()) ||
+      JSON.stringify(selectedTasks.sort()) !== JSON.stringify(originalTasks.sort())
+    );
+  };
+
+  const resetForm = () => {
+    setNoteTitle('');
+    setNoteContent('');
+    setNoteType('notice');
+    setSelectedMembers([]);
+    setSelectedTasks([]);
+    
+    // Clear original values for change detection
+    setOriginalTitle('');
+    setOriginalContent('');
+    setOriginalType('notice');
+    setOriginalMembers([]);
+    setOriginalTasks([]);
+    
+    // Clear pending important note data
+    setPendingNoteData(null);
+    setShowImportantConfirm(false);
+  };
+
+  const handleCreateNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Prevent submission if confirmation modal is already showing
+    if (showImportantConfirm) {
+      return;
+    }
+    
+    const noteData = {
+      title: noteTitle,
+      content: noteContent,
+      type: noteType,
+      taggedMembers: selectedMembers,
+      referencedTasks: selectedTasks
+    };
+
+    // If marking as important, show confirmation
+    if (noteType === 'important') {
+      console.log('Setting up important note confirmation', noteData);
+      setPendingNoteData(noteData);
+      setShowImportantConfirm(true);
+      return;
+    }
+
+    console.log('Creating note directly', noteData);
+    createNoteMutation.mutate(noteData);
+  };
+
+  const handleEditNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNote) return;
+    
+    // Prevent submission if confirmation modal is already showing
+    if (showImportantConfirm) {
+      return;
+    }
+    
+    const noteData = {
+      title: noteTitle,
+      content: noteContent,
+      type: noteType,
+      taggedMembers: selectedMembers,
+      referencedTasks: selectedTasks
+    };
+
+    // If changing to important or already important, show confirmation
+    if (noteType === 'important' && editingNote.type !== 'important') {
+      setPendingNoteData({ noteId: editingNote._id, noteData });
+      setShowImportantConfirm(true);
+      return;
+    }
+
+    updateNoteMutation.mutate({ noteId: editingNote._id, noteData });
+  };
+
+  const confirmImportantNote = () => {
+    if (!pendingNoteData) {
+      console.error('No pending note data found');
+      setShowImportantConfirm(false);
+      return;
+    }
+
+    console.log('Confirming important note with data:', pendingNoteData);
+    
+    if (pendingNoteData.noteId) {
+      // Editing existing note
+      console.log('Updating existing note');
+      updateNoteMutation.mutate(pendingNoteData);
+    } else {
+      // Creating new note
+      console.log('Creating new important note');
+      createNoteMutation.mutate(pendingNoteData);
+    }
+    
+    // Clear state immediately after triggering mutation
+    setShowImportantConfirm(false);
+    setPendingNoteData(null);
+  };
+
+  const openEditModal = (note: Note) => {
+    setEditingNote(note);
+    
+    // Set current values
+    setNoteTitle(note.title);
+    setNoteContent(note.content);
+    setNoteType(note.type);
+    setSelectedMembers(note.taggedMembers.map(m => m._id));
+    setSelectedTasks(note.referencedTasks.map(t => t._id));
+    
+    // Set original values for change detection
+    setOriginalTitle(note.title);
+    setOriginalContent(note.content);
+    setOriginalType(note.type);
+    setOriginalMembers(note.taggedMembers.map(m => m._id));
+    setOriginalTasks(note.referencedTasks.map(t => t._id));
+    
+    setShowEditModal(true);
+  };
+
+  const handleDeleteNote = (note: Note) => {
+    if (window.confirm('Are you sure you want to delete this note?')) {
+      deleteNoteMutation.mutate(note._id);
+    }
+  };
+
+  const toggleBookmark = (note: Note) => {
+    bookmarkMutation.mutate({
+      noteId: note._id,
+      bookmark: !note.isBookmarked
+    });
+  };
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'important':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'issue':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'reminder':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'notice':
+        return 'bg-green-100 text-green-800 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'important':
+        return <ExclamationTriangleIcon className="h-4 w-4" />;
+      case 'issue':
+        return <InformationCircleIcon className="h-4 w-4" />;
+      case 'reminder':
+        return <ClockIcon className="h-4 w-4" />;
+      case 'notice':
+        return <BellIcon className="h-4 w-4" />;
+      default:
+        return <DocumentTextIcon className="h-4 w-4" />;
+    }
+  };
+
+  const canCreateNotes = can.createNotes && can.createNotes();
 
   if (isLoading) {
     return (
@@ -68,45 +459,13 @@ const ProjectNotesPage: React.FC = () => {
       <Layout>
         <div className="text-center py-12">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h1>
-          <p className="text-gray-600">You do not have access to this project. Contact an admin to be added as a member.</p>
+          <p className="text-gray-600">You do not have access to this project.</p>
         </div>
       </Layout>
     );
   }
 
-  // Mock notes data for placeholder
-  const mockNotes = [
-    {
-      id: 1,
-      title: "Project Requirements & Specifications",
-      content: "This note contains the detailed project requirements and technical specifications. It includes user stories, acceptance criteria, and technical constraints.",
-      author: "John Doe",
-      createdAt: new Date('2024-01-15'),
-      updatedAt: new Date('2024-01-20'),
-      isBookmarked: true,
-      tags: ["requirements", "specs", "important"]
-    },
-    {
-      id: 2,
-      title: "Meeting Notes - Sprint Planning",
-      content: "Sprint planning meeting notes from January 18th. Discussed story points, team capacity, and sprint goals.",
-      author: "Jane Smith",
-      createdAt: new Date('2024-01-18'),
-      updatedAt: new Date('2024-01-18'),
-      isBookmarked: false,
-      tags: ["meeting", "sprint", "planning"]
-    },
-    {
-      id: 3,
-      title: "Architecture Decision Records",
-      content: "Documentation of key architectural decisions made for the project including database design, API structure, and deployment strategy.",
-      author: "Mike Johnson",
-      createdAt: new Date('2024-01-10'),
-      updatedAt: new Date('2024-01-22'),
-      isBookmarked: true,
-      tags: ["architecture", "decisions", "technical"]
-    }
-  ];
+  const currentNotes = activeTab === 'bookmarks' ? bookmarkedNotes : notes;
 
   return (
     <Layout>
@@ -114,190 +473,523 @@ const ProjectNotesPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <DocumentTextIcon className="h-6 w-6 text-purple-600" />
+            <div className="p-3 bg-yellow-100 rounded-lg">
+              <DocumentTextIcon className="h-6 w-6 text-yellow-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Project Notes</h1>
-              <p className="text-gray-600">
-                Collaborative documentation and meeting notes for {project.name}
-              </p>
+              <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
+              <p className="text-gray-600">Project Notes & Documentation</p>
             </div>
           </div>
           
-          {can.createNotes() && (
-            <button className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+          {canCreateNotes && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+            >
               <PlusIcon className="h-4 w-4 mr-2" />
-              New Note
+              Create Note
             </button>
           )}
         </div>
 
-        {/* Search and Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 relative">
-              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search notes..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-            </div>
-            <div className="flex gap-2">
-              <select className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500">
-                <option value="">All Tags</option>
-                <option value="requirements">Requirements</option>
-                <option value="meeting">Meetings</option>
-                <option value="architecture">Architecture</option>
-              </select>
-              <select className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500">
-                <option value="updated">Last Updated</option>
-                <option value="created">Date Created</option>
-                <option value="title">Title A-Z</option>
-              </select>
-            </div>
-          </div>
+        {/* Tabs */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'all'
+                  ? 'border-teal-500 text-teal-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              All Notes ({notes?.length || 0})
+            </button>
+            <button
+              onClick={() => setActiveTab('bookmarks')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'bookmarks'
+                  ? 'border-teal-500 text-teal-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Bookmarked ({notes?.filter((note: Note) => note.isBookmarked).length || 0})
+            </button>
+            <button
+              onClick={() => setActiveTab('activity')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'activity'
+                  ? 'border-teal-500 text-teal-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Recent Activity
+            </button>
+          </nav>
         </div>
 
-        {/* Notes Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Notes List */}
-          <div className="lg:col-span-2">
-            <div className="space-y-4">
-              {mockNotes.map((note) => (
-                <div key={note.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center space-x-2">
-                      <DocumentTextIconSolid className="h-5 w-5 text-purple-600" />
-                      <h3 className="text-lg font-semibold text-gray-900 hover:text-purple-600 cursor-pointer">
-                        {note.title}
-                      </h3>
-                      {note.isBookmarked && (
-                        <BookmarkIconSolid className="h-4 w-4 text-amber-500" />
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button className="p-1 text-gray-400 hover:text-purple-600">
-                        <BookmarkIcon className="h-4 w-4" />
-                      </button>
-                      {can.editNotes() && (
-                        <>
-                          <button className="p-1 text-gray-400 hover:text-blue-600">
-                            <PencilIcon className="h-4 w-4" />
-                          </button>
-                          <button className="p-1 text-gray-400 hover:text-red-600">
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <p className="text-gray-700 mb-4 line-clamp-3">
-                    {note.content}
-                  </p>
-                  
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {note.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-sm text-gray-500">
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-1">
-                        <UserIcon className="h-4 w-4" />
-                        <span>{note.author}</span>
+        {/* Content */}
+        {activeTab === 'activity' ? (
+          /* Recent Activity Tab */
+          <div className="space-y-4">
+            {recentActivity?.length > 0 ? (
+              recentActivity.map((activity: any) => (
+                <div key={activity._id} className="bg-white p-4 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center">
+                        {getTypeIcon(activity.type)}
                       </div>
-                      <div className="flex items-center space-x-1">
-                        <ClockIcon className="h-4 w-4" />
-                        <span>Updated {note.updatedAt.toLocaleDateString()}</span>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{activity.action}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(activity.createdAt).toLocaleDateString('en-GB')} • {activity.user.fullName}
+                        </p>
                       </div>
                     </div>
-                    <button className="text-purple-600 hover:text-purple-700 font-medium">
-                      View →
-                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              ))
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <ClockIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>No recent activity found.</p>
+              </div>
+            )}
             
-            {/* Empty State */}
-            {mockNotes.length === 0 && (
-              <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
-                <FolderIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No notes yet</h3>
-                <p className="text-gray-600 mb-4">
-                  Start documenting your project by creating your first note.
-                </p>
-                {can.createNotes() && (
-                  <button className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">
-                    Create First Note
+            {/* Activity Cleanup Information */}
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-gray-600">
+                    Only the 15 most recent activities are kept. Older activities are automatically removed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Notes Tabs */
+          <div className="space-y-4">
+            {notesLoading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500 mx-auto"></div>
+              </div>
+            ) : currentNotes?.length > 0 ? (
+              currentNotes.map((note: Note) => (
+                <div key={note._id} className="bg-white rounded-lg border border-gray-200 p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">{note.title}</h3>
+                        <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getTypeColor(note.type)}`}>
+                          {getTypeIcon(note.type)}
+                          <span className="ml-1 capitalize">{note.type}</span>
+                        </div>
+                      </div>
+                      <p className="text-gray-700 mb-4">{note.content}</p>
+                      
+                      {/* Tagged Members */}
+                      {note.taggedMembers?.length > 0 && (
+                        <div className="flex items-center space-x-2 mb-2">
+                          <UserGroupIcon className="h-4 w-4 text-gray-500" />
+                          <span className="text-sm text-gray-500">Tagged:</span>
+                          <div className="flex space-x-1">
+                            {note.taggedMembers.map(member => (
+                              <span key={member._id} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                {member.fullName}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Referenced Tasks */}
+                      {note.referencedTasks?.length > 0 && (
+                        <div className="flex items-center space-x-2 mb-2">
+                          <TagIcon className="h-4 w-4 text-gray-500" />
+                          <span className="text-sm text-gray-500">Tasks:</span>
+                          <div className="flex space-x-1">
+                            {note.referencedTasks.map(task => (
+                              <span key={task._id} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                {task.title}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center space-x-4 text-sm text-gray-500">
+                        <span>By {note.author.fullName}</span>
+                        <span>•</span>
+                        <span>{new Date(note.createdAt).toLocaleDateString('en-GB')}</span>
+                        {note.updatedAt !== note.createdAt && (
+                          <>
+                            <span>•</span>
+                            <span>Updated {new Date(note.updatedAt).toLocaleDateString('en-GB')}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2 ml-4">
+                      <button
+                        onClick={() => toggleBookmark(note)}
+                        disabled={bookmarkMutation.isPending}
+                        className="p-2 text-gray-400 hover:text-yellow-500 transition-colors disabled:opacity-50"
+                        title={note.isBookmarked ? 'Remove bookmark' : 'Bookmark note'}
+                      >
+                        {note.isBookmarked ? (
+                          <BookmarkSolidIcon className="h-5 w-5 text-yellow-500" />
+                        ) : (
+                          <BookmarkIcon className="h-5 w-5" />
+                        )}
+                      </button>
+                      
+                      {note.author._id === currentUser?.id && (
+                        <button
+                          onClick={() => openEditModal(note)}
+                          className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                          title="Edit note"
+                        >
+                          <PencilIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                      
+                      {(note.author._id === currentUser?.id || userRole === 'admin') && (
+                        <button
+                          onClick={() => handleDeleteNote(note)}
+                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Delete note"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <DocumentTextIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>{activeTab === 'bookmarks' ? 'Bookmarked notes will appear here.' : 'Notes will appear here.'}</p>
+                {activeTab === 'all' && canCreateNotes && (
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="mt-4 text-teal-600 hover:text-teal-700 font-medium"
+                  >
+                    Create a Note
                   </button>
                 )}
               </div>
             )}
           </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="space-y-4">
-            {/* Quick Stats */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <h4 className="font-medium text-gray-900 mb-3">Notes Overview</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Notes</span>
-                  <span className="font-medium">3</span>
+        {/* Create Note Modal */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Note</h3>
+              
+              <form onSubmit={handleCreateNote} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                  <input
+                    type="text"
+                    value={noteTitle}
+                    onChange={(e) => setNoteTitle(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    required
+                  />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Bookmarked</span>
-                  <span className="font-medium">2</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">This Week</span>
-                  <span className="font-medium">1</span>
-                </div>
-              </div>
-            </div>
 
-            {/* Recent Activity */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <h4 className="font-medium text-gray-900 mb-3">Recent Activity</h4>
-              <div className="space-y-3">
-                <div className="text-sm">
-                  <p className="text-gray-900">Mike updated "Architecture Decision Records"</p>
-                  <p className="text-gray-500">2 hours ago</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    rows={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    required
+                  />
                 </div>
-                <div className="text-sm">
-                  <p className="text-gray-900">Jane created "Meeting Notes - Sprint Planning"</p>
-                  <p className="text-gray-500">1 day ago</p>
-                </div>
-                <div className="text-sm">
-                  <p className="text-gray-900">John updated "Project Requirements"</p>
-                  <p className="text-gray-500">3 days ago</p>
-                </div>
-              </div>
-            </div>
 
-            {/* Coming Soon Features */}
-            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200 p-4">
-              <h4 className="font-medium text-purple-900 mb-2">🚀 Coming Soon</h4>
-              <ul className="text-sm text-purple-700 space-y-1">
-                <li>• Rich text editor</li>
-                <li>• File attachments</li>
-                <li>• Real-time collaboration</li>
-                <li>• Note templates</li>
-                <li>• Advanced search</li>
-              </ul>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { value: 'notice', label: 'Notice', color: 'green' },
+                      { value: 'issue', label: 'Issue', color: 'yellow' },
+                      { value: 'reminder', label: 'Reminder', color: 'blue' },
+                      { value: 'important', label: 'Important', color: 'red' },
+                      { value: 'other', label: 'Other', color: 'gray' }
+                    ].map((type) => (
+                      <button
+                        key={type.value}
+                        type="button"
+                        onClick={() => setNoteType(type.value as any)}
+                        className={`p-2 text-xs font-medium rounded-lg border transition-colors ${
+                          noteType === type.value
+                            ? `bg-${type.color}-100 text-${type.color}-800 border-${type.color}-300`
+                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {type.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
+                      <label key={member.user._id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedMembers.includes(member.user._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedMembers([...selectedMembers, member.user._id]);
+                            } else {
+                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{member.user.fullName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {tasks?.map((task: Task) => (
+                      <label key={task._id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTasks.includes(task._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTasks([...selectedTasks, task._id]);
+                            } else {
+                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{task.title}</span>
+                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                          task.status === 'done' ? 'bg-green-100 text-green-800' :
+                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {task.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={createNoteMutation.isPending}
+                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {createNoteMutation.isPending ? 'Creating...' : 'Create Note'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      resetForm();
+                    }}
+                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Edit Note Modal */}
+        {showEditModal && editingNote && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Note</h3>
+              
+              <form onSubmit={handleEditNote} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                  <input
+                    type="text"
+                    value={noteTitle}
+                    onChange={(e) => setNoteTitle(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    rows={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { value: 'notice', label: 'Notice', color: 'green' },
+                      { value: 'issue', label: 'Issue', color: 'yellow' },
+                      { value: 'reminder', label: 'Reminder', color: 'blue' },
+                      { value: 'important', label: 'Important', color: 'red' },
+                      { value: 'other', label: 'Other', color: 'gray' }
+                    ].map((type) => (
+                      <button
+                        key={type.value}
+                        type="button"
+                        onClick={() => setNoteType(type.value as any)}
+                        className={`p-2 text-xs font-medium rounded-lg border transition-colors ${
+                          noteType === type.value
+                            ? `bg-${type.color}-100 text-${type.color}-800 border-${type.color}-300`
+                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {type.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
+                      <label key={member.user._id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedMembers.includes(member.user._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedMembers([...selectedMembers, member.user._id]);
+                            } else {
+                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{member.user.fullName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {tasks?.map((task: Task) => (
+                      <label key={task._id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTasks.includes(task._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTasks([...selectedTasks, task._id]);
+                            } else {
+                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{task.title}</span>
+                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                          task.status === 'done' ? 'bg-green-100 text-green-800' :
+                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {task.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={updateNoteMutation.isPending || !hasChanges()}
+                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title={!hasChanges() && !updateNoteMutation.isPending ? 'No changes to save' : ''}
+                  >
+                    {updateNoteMutation.isPending ? 'Updating...' : 
+                     !hasChanges() ? 'No Changes' : 'Update Note'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setEditingNote(null);
+                      resetForm();
+                    }}
+                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Important Note Confirmation Modal */}
+        {showImportantConfirm && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center space-x-3 mb-4">
+                <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
+                <h3 className="text-lg font-semibold text-gray-900">Important Note</h3>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                Marking this note as "Important" will notify all project members. Are you sure you want to continue?
+              </p>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={confirmImportantNote}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Yes, Mark as Important
+                </button>
+                <button
+                  onClick={() => {
+                    setShowImportantConfirm(false);
+                    setPendingNoteData(null);
+                  }}
+                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

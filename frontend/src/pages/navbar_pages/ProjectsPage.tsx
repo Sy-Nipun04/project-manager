@@ -423,7 +423,7 @@ const ProjectsPage: React.FC = () => {
                         </div>
                         <div className="flex items-center">
                           <CalendarIcon className="h-4 w-4 mr-1" />
-                          {new Date(project.createdAt).toLocaleDateString()}
+                          {new Date(project.createdAt).toLocaleDateString('en-GB')}
                         </div>
                       </div>
                     </div>
@@ -449,13 +449,13 @@ const ProjectsPage: React.FC = () => {
                           <div>
                             <span className="font-medium text-gray-700">Created:</span>{' '}
                             <span className="text-gray-600">
-                              {new Date(project.createdAt).toLocaleDateString()}
+                              {new Date(project.createdAt).toLocaleDateString('en-GB')}
                             </span>
                           </div>
                           <div>
                             <span className="font-medium text-gray-700">Last Updated:</span>{' '}
                             <span className="text-gray-600">
-                              {new Date(project.updatedAt).toLocaleDateString()}
+                              {new Date(project.updatedAt).toLocaleDateString('en-GB')}
                             </span>
                           </div>
                           {project.description && (
