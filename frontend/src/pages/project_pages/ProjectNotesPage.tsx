@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useProject } from '../../hooks/useProject';
 import { 
   DocumentTextIcon, 
   PlusIcon, 
@@ -17,7 +18,8 @@ import {
   TagIcon,
   UserGroupIcon,
   BellIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkSolidIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
@@ -66,10 +68,10 @@ const ProjectNotesPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const { user: currentUser } = useAuth();
-  const { can, isMember, userRole } = usePermissions();
   const queryClient = useQueryClient();
   
   const [activeTab, setActiveTab] = useState<'all' | 'bookmarks' | 'activity'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -91,14 +93,10 @@ const ProjectNotesPage: React.FC = () => {
   const [originalTasks, setOriginalTasks] = useState<string[]>([]);
 
   // Fetch project data
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const response = await api.get(`/projects/${projectId}`);
-      return response.data.project;
-    },
-    enabled: !!projectId
-  });
+  const { project, isLoading } = useProject(projectId);
+
+  // Get permissions using fresh project data
+  const { can, isMember, userRole } = usePermissions(project);
 
   // Fetch notes
   const { data: notes, isLoading: notesLoading } = useQuery({
@@ -465,7 +463,21 @@ const ProjectNotesPage: React.FC = () => {
     );
   }
 
-  const currentNotes = activeTab === 'bookmarks' ? bookmarkedNotes : notes;
+  const currentNotes = (() => {
+    const baseNotes = activeTab === 'bookmarks' ? bookmarkedNotes : notes;
+    if (!searchQuery || !baseNotes) return baseNotes;
+    
+    return baseNotes.filter((note: Note) => 
+      note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      note.author.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      note.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      note.taggedMembers?.some(member => 
+        member.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        member.username.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    );
+  })();
 
   return (
     <Layout>
@@ -491,6 +503,20 @@ const ProjectNotesPage: React.FC = () => {
               Create Note
             </button>
           )}
+        </div>
+
+        {/* Search Bar */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="relative">
+            <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search notes by title, content, author, or type..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            />
+          </div>
         </div>
 
         {/* Tabs */}
@@ -676,14 +702,23 @@ const ProjectNotesPage: React.FC = () => {
             ) : (
               <div className="text-center py-12 text-gray-500">
                 <DocumentTextIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>{activeTab === 'bookmarks' ? 'Bookmarked notes will appear here.' : 'Notes will appear here.'}</p>
-                {activeTab === 'all' && canCreateNotes && (
-                  <button
-                    onClick={() => setShowCreateModal(true)}
-                    className="mt-4 text-teal-600 hover:text-teal-700 font-medium"
-                  >
-                    Create a Note
-                  </button>
+                {searchQuery ? (
+                  <>
+                    <p>No notes found matching your search criteria.</p>
+                    <p className="text-sm mt-2">Try a different search term or clear your search to see all notes.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>{activeTab === 'bookmarks' ? 'Bookmarked notes will appear here.' : 'Notes will appear here.'}</p>
+                    {activeTab === 'all' && canCreateNotes && (
+                      <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="mt-4 text-teal-600 hover:text-teal-700 font-medium"
+                      >
+                        Create a Note
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}

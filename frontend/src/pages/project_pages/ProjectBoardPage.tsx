@@ -1,10 +1,9 @@
 import React, { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
-import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useProject } from '../../hooks/useProject';
 import { 
   ViewColumnsIcon, 
   PlusIcon, 
@@ -15,16 +14,11 @@ import {
 const ProjectBoardPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
-  const { can, isMember, userRole } = usePermissions();
 
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const response = await api.get(`/projects/${projectId}`);
-      return response.data.project;
-    },
-    enabled: !!projectId
-  });
+  const { project, isLoading } = useProject(projectId);
+
+  // Get permissions using fresh project data
+  const { can, isMember, userRole } = usePermissions(project);
 
   // Auto-select the project in sidebar when viewing it
   useEffect(() => {

@@ -1,7 +1,8 @@
 import React from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSidebarProjects } from '../hooks/useProject';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { api } from '../lib/api';
+
 import { useSidebar } from '../contexts/SidebarContext';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -121,14 +122,7 @@ const CollapsibleSidebar: React.FC = () => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   
-  const { data: projects } = useQuery({
-    queryKey: ['projects', user?.id],
-    queryFn: async () => {
-      const response = await api.get('/projects');
-      return response.data.projects;
-    },
-    enabled: !!user, // Only fetch when user is authenticated
-  });
+  const { projects } = useSidebarProjects(user?.id);
 
   // Listen for logout events to clear query cache
   React.useEffect(() => {

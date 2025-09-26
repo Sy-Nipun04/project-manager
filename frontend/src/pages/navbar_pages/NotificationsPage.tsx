@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../lib/api';
+import { useProjects, useSidebarProjects } from '../../hooks/useProject';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   BellIcon, 
   UserPlusIcon, 
@@ -27,8 +29,11 @@ interface Notification {
 }
 
 const NotificationsPage: React.FC = () => {
+  const { user } = useAuth();
+  const { invalidateProjects } = useProjects();
+  const { invalidateSidebarProjects } = useSidebarProjects(user?.id);
+  
   const [notifications, setNotifications] = useState<Notification[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLast7Days, setShowLast7Days] = useState(false);
@@ -133,6 +138,12 @@ const NotificationsPage: React.FC = () => {
 
       const response = await api.put(`/projects/${projectId}/invitation/${invitationId}`, { action });
       console.log('Project invitation response:', response.data);
+      
+      // If the invitation was accepted, invalidate projects cache to update sidebar
+      if (action === 'accept') {
+        invalidateProjects();
+        invalidateSidebarProjects();
+      }
       
       // Update the notification to show it's been processed
       setNotifications(prev => prev.map(n => 

@@ -561,7 +561,7 @@ router.put('/:projectId/members/:memberId/role', checkProjectAdmin, [
 });
 
 // Remove member from project
-router.delete('/:projectId/members/:memberId', checkProjectAdmin, async (req, res) => {
+router.delete('/:projectId/members/:memberId', checkProjectAccess('viewer'), async (req, res) => {
   try {
     const { memberId } = req.params;
 
@@ -575,20 +575,67 @@ router.delete('/:projectId/members/:memberId', checkProjectAdmin, async (req, re
       return res.status(400).json({ message: 'Cannot remove project creator' });
     }
 
+    // Check permissions: users can remove themselves, or admins can remove others
+    const memberUserId = member.user._id ? member.user._id.toString() : member.user.toString();
+    const isRemovingSelf = memberUserId === req.user._id.toString();
+    const userMember = req.project.members.find(m => {
+      const userIdToCompare = m.user._id ? m.user._id.toString() : m.user.toString();
+      return userIdToCompare === req.user._id.toString();
+    });
+    const isAdmin = userMember?.role === 'admin';
+
+
+
+    if (!isRemovingSelf && !isAdmin) {
+      return res.status(403).json({ message: 'You can only remove yourself from the project, or be an admin to remove others' });
+    }
+
+    // Populate member user details for notifications
+    await req.project.populate('members.user', 'fullName username email');
+    const memberUser = req.project.members.id(memberId).user;
+    const isCurrentUser = isRemovingSelf;
+
     // Create notification for the removed member
     await Notification.create({
       user: member.user,
       type: 'member_removed',
-      title: 'Removed from Project',
-      message: `You have been removed from the project "${req.project.name}"`,
+      title: isCurrentUser ? 'Left Project' : 'Removed from Project',
+      message: isCurrentUser 
+        ? `You have left the project "${req.project.name}"` 
+        : `You have been removed from the project "${req.project.name}" by ${req.user.fullName}`,
       data: { project: req.project._id }
     });
+
+    // Create notifications for all other members
+    const otherMemberIds = req.project.members
+      .filter(m => m._id.toString() !== memberId && m.user._id.toString() !== req.user._id.toString())
+      .map(m => m.user._id);
+
+    for (const otherMemberId of otherMemberIds) {
+      await Notification.create({
+        user: otherMemberId,
+        type: 'member_removed',
+        title: 'Team Member Update',
+        message: isCurrentUser 
+          ? `${memberUser.fullName} has left the project "${req.project.name}"` 
+          : `${memberUser.fullName} has been removed from the project "${req.project.name}" by ${req.user.fullName}`,
+        data: { 
+          project: req.project._id,
+          user: member.user,
+          removedBy: req.user._id
+        }
+      });
+    }
 
     // Remove member
     req.project.members.pull(memberId);
     await req.project.save();
 
-    res.json({ message: 'Member removed successfully' });
+    const successMessage = isRemovingSelf 
+      ? `You have successfully left the project "${req.project.name}"`
+      : 'Member removed successfully';
+
+    res.json({ message: successMessage });
   } catch (error) {
     console.error('Remove member error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -909,7 +956,7 @@ router.post('/:projectId/notes', checkProjectAccess('editor'), [
           user: memberId,
           type: 'note_created',
           title: type === 'important' ? 'Important Note Created' : 'Reminder Note Created',
-          message: `A ${type} note "${title}" has been created by ${req.user.fullName} in project "${req.project.name}"`,
+          message: `A(n) ${type} note "${title}" has been created by ${req.user.fullName} in project "${req.project.name}"`,
           data: { 
             project: req.params.projectId,
             note: note._id

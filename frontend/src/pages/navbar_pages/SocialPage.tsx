@@ -35,6 +35,7 @@ const SocialPage: React.FC = () => {
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [friendsSearchQuery, setFriendsSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -256,6 +257,22 @@ const SocialPage: React.FC = () => {
             <div className="p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Friends</h2>
               
+              {/* Friends Search Bar */}
+              {friends.length > 0 && (
+                <div className="mb-6">
+                  <div className="relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search friends..."
+                      value={friendsSearchQuery}
+                      onChange={(e) => setFriendsSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+              
               {loading ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 mx-auto"></div>
@@ -275,8 +292,25 @@ const SocialPage: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {friends.map((friend) => (
+                (() => {
+                  const filteredFriends = friends.filter(friend =>
+                    friend.fullName.toLowerCase().includes(friendsSearchQuery.toLowerCase()) ||
+                    friend.username.toLowerCase().includes(friendsSearchQuery.toLowerCase()) ||
+                    friend.email.toLowerCase().includes(friendsSearchQuery.toLowerCase())
+                  );
+
+                  if (filteredFriends.length === 0 && friendsSearchQuery) {
+                    return (
+                      <div className="text-center py-8">
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Friends Found</h3>
+                        <p className="text-gray-600">No friends match your search criteria. Try a different search term.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredFriends.map((friend) => (
                     <div key={friend._id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                       <div className="flex items-center space-x-3">
                         <div className="flex-shrink-0">
@@ -312,8 +346,10 @@ const SocialPage: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                      ))}
+                    </div>
+                  );
+                })()
               )}
             </div>
           )}

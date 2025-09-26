@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProject, useProjects } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
 import { 
   CogIcon,
@@ -19,14 +20,17 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   LockClosedIcon,
-  GlobeAltIcon
+  GlobeAltIcon,
+  ShieldCheckIcon,
+  EyeIcon,
+  PencilIcon,
+  UserCircleIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const ProjectSettingsPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
-  const { isMember, userRole } = usePermissions();
   const { user } = useAuth(); // Using for authentication context
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -40,15 +44,19 @@ const ProjectSettingsPage: React.FC = () => {
   const [inviteRole, setInviteRole] = useState<'viewer' | 'editor' | 'admin'>('viewer');
   const [deleteConfirmation, setDeleteConfirmation] = useState({ projectName: '', password: '' });
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
+  const [friends, setFriends] = useState<any[]>([]);
+  const [filteredSuggestions, setFilteredSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
+  const [pendingRoleChange, setPendingRoleChange] = useState<{memberId: string, newRole: string} | null>(null);
+  const [showRemoveMemberModal, setShowRemoveMemberModal] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<{ id: string; name: string; isCurrentUser: boolean } | null>(null);
 
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const response = await api.get(`/projects/${projectId}`);
-      return response.data.project;
-    },
-    enabled: !!projectId
-  });
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
+  const { invalidateProjects } = useProjects();
+
+  // Get permissions using fresh project data
+  const { isMember, userRole } = usePermissions(project);
 
   // Mutations
   const inviteMemberMutation = useMutation({
@@ -57,14 +65,16 @@ const ProjectSettingsPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       setShowInviteModal(false);
       setInviteEmail('');
       setInviteRole('viewer');
-      toast.success('Invitation sent successfully');
+      setShowSuggestions(false);
+      toast.success('Invitation sent successfully! The user will be notified.');
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to send invitation');
+      const message = error.response?.data?.userFriendlyMessage || error.response?.data?.message || 'Failed to send invitation';
+      toast.error(message);
     }
   });
 
@@ -73,12 +83,46 @@ const ProjectSettingsPage: React.FC = () => {
       const response = await api.delete(`/projects/${projectId}/members/${memberId}`);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      toast.success('Member removed successfully');
+    onMutate: async (memberId: string) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['project', projectId] });
+      
+      // Snapshot the previous value
+      const previousProject = queryClient.getQueryData(['project', projectId]);
+      
+      // Optimistically update the cache
+      updateProjectOptimistically((oldProject: any) => {
+        if (!oldProject?.members) return oldProject;
+        
+        return {
+          ...oldProject,
+          members: oldProject.members.filter((member: any) => member._id !== memberId)
+        };
+      });
+      
+      return { previousProject };
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to remove member');
+    onError: (error, __, context) => {
+      // Rollback on error
+      if (context?.previousProject) {
+        queryClient.setQueryData(['project', projectId], context.previousProject);
+      }
+      toast.error((error as any).response?.data?.message || 'Failed to remove member');
+    },
+    onSuccess: (data) => {
+      invalidateProject();
+      invalidateProjects();
+      
+      // Check if the removed member was the current user
+      const wasCurrentUser = memberToRemove?.isCurrentUser;
+      
+      // Use the message from backend response
+      toast.success(data.message);
+      
+      if (wasCurrentUser) {
+        // Navigate to projects page since user is no longer a member
+        navigate('/projects');
+      }
     }
   });
 
@@ -87,12 +131,54 @@ const ProjectSettingsPage: React.FC = () => {
       const response = await api.put(`/projects/${projectId}/members/${memberId}/role`, { role });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      toast.success('Member role updated successfully');
+    onMutate: async ({ memberId, role }) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['project', projectId] });
+      
+      // Snapshot the previous value
+      const previousProject = queryClient.getQueryData(['project', projectId]);
+      
+      // Optimistically update the cache
+      updateProjectOptimistically((oldProject: any) => {
+        if (!oldProject?.members) return oldProject;
+        
+        return {
+          ...oldProject,
+          members: oldProject.members.map((member: any) => 
+            member._id === memberId ? { ...member, role } : member
+          )
+        };
+      });
+      
+      // Return a context object with the snapshotted value
+      return { previousProject };
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to update member role');
+    onError: (error, __, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousProject) {
+        queryClient.setQueryData(['project', projectId], context.previousProject);
+      }
+      toast.error((error as any).response?.data?.message || 'Failed to update member role');
+    },
+    onSuccess: async () => {
+      // Invalidate project and projects list
+      invalidateProject();
+      invalidateProjects();
+      
+      // Invalidate all project-specific queries (tasks, notes, etc.)
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId, 'tasks'] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId, 'notes'] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId, 'members'] });
+      
+      // Update sidebar selected project with fresh data after invalidation
+      setTimeout(async () => {
+        const freshProject = queryClient.getQueryData(['project', projectId]) as any;
+        if (freshProject && freshProject._id) {
+          setSelectedProject(freshProject);
+        }
+      }, 100); // Small delay to allow cache to update
+      
+      toast.success('Member role updated successfully');
     }
   });
 
@@ -105,8 +191,7 @@ const ProjectSettingsPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['projects', (user as any)?.id] });
+      invalidateProjects();
       queryClient.removeQueries({ queryKey: ['project', projectId] });
       
       toast.success('Project archived successfully. All members have been notified.');
@@ -130,8 +215,7 @@ const ProjectSettingsPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['projects', (user as any)?.id] });
+      invalidateProjects();
       queryClient.removeQueries({ queryKey: ['project', projectId] });
       
       toast.success('Project deleted successfully. All members have been notified.');
@@ -142,12 +226,201 @@ const ProjectSettingsPage: React.FC = () => {
     }
   });
 
+  // Handle member input change for autocomplete
+  const handleMemberInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInviteEmail(value);
+    
+    if (value.length > 0) {
+      // First filter friends, excluding the current user
+      const filteredFriends = friends.filter(friend => 
+        friend._id !== user?.id && // Exclude current user
+        (friend.fullName.toLowerCase().includes(value.toLowerCase()) ||
+        friend.username.toLowerCase().includes(value.toLowerCase()) ||
+        friend.email.toLowerCase().includes(value.toLowerCase()))
+      );
+
+      // Add status information for each friend
+      const friendsWithStatus = filteredFriends.map(friend => {
+        const isMember = project?.members?.some((member: any) => 
+          member.user._id === friend._id
+        );
+        const hasPendingInvite = project?.invitations?.some((inv: any) => 
+          inv.user._id === friend._id && inv.status === 'pending'
+        );
+
+        return {
+          ...friend,
+          isMember,
+          hasPendingInvite,
+          status: isMember ? 'member' : hasPendingInvite ? 'pending' : 'available'
+        };
+      });
+
+      // If input looks like email and no friends match, add it as a non-friend option
+      let allSuggestions = [...friendsWithStatus];
+      const isEmail = /\S+@\S+\.\S+/.test(value);
+      if (isEmail && !friendsWithStatus.some(f => f.email === value)) {
+        allSuggestions.push({
+          _id: 'non-friend',
+          fullName: 'Not in your friends list',
+          username: '',
+          email: value,
+          isMember: false,
+          hasPendingInvite: false,
+          status: 'non-friend'
+        });
+      }
+
+      setFilteredSuggestions(allSuggestions);
+      setShowSuggestions(true);
+    } else {
+      setShowSuggestions(false);
+    }
+  };
+
+  // Select a user from suggestions
+  const selectUser = (user: any) => {
+    if (user.status === 'member') {
+      toast.error('This user is already a member of the project');
+      return;
+    }
+    if (user.status === 'pending') {
+      toast.error('An invitation has already been sent to this user');
+      return;
+    }
+    
+    setInviteEmail(user.email);
+    setShowSuggestions(false);
+  };
+
+  const handleInviteMember = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) {
+      toast.error('Please enter an email address');
+      return;
+    }
+    
+    // Check if user is trying to invite themselves
+    if (inviteEmail.toLowerCase() === user?.email?.toLowerCase() || 
+        inviteEmail.toLowerCase() === user?.username?.toLowerCase()) {
+      toast.error('You cannot invite yourself to a project');
+      return;
+    }
+    
+    inviteMemberMutation.mutate({ email: inviteEmail, role: inviteRole });
+  };
+
+  const handleRoleChange = (memberId: string, newRole: string) => {
+    const currentUserMember = project?.members?.find((m: any) => m.user._id === user?.id);
+    const isCurrentUser = memberId === currentUserMember?._id;
+    const isCurrentUserAdmin = currentUserMember?.role === 'admin';
+    const isCreator = project?.creator?._id === user?.id;
+    
+    // Prevent creator from demoting themselves
+    if (isCurrentUser && isCreator && newRole !== 'admin') {
+      toast.error('Project creators cannot demote themselves. You must always remain as admin.');
+      return;
+    }
+    
+    // If current user is demoting themselves from admin, show confirmation
+    if (isCurrentUser && isCurrentUserAdmin && newRole !== 'admin') {
+      setPendingRoleChange({ memberId, newRole });
+      setShowRoleChangeModal(true);
+    } else {
+      // Proceed with role change
+      updateMemberRoleMutation.mutate({ memberId, role: newRole });
+    }
+  };
+
+  const confirmRoleChange = () => {
+    if (pendingRoleChange) {
+      updateMemberRoleMutation.mutate({
+        memberId: pendingRoleChange.memberId,
+        role: pendingRoleChange.newRole
+      });
+      setPendingRoleChange(null);
+      setShowRoleChangeModal(false);
+    }
+  };
+
+  const handleRemoveMember = (member: any) => {
+    const isCurrentUser = member.user._id === user?.id;
+    setMemberToRemove({
+      id: member._id,
+      name: member.user?.fullName || member.user?.username,
+      isCurrentUser
+    });
+    setShowRemoveMemberModal(true);
+  };
+
+  const confirmRemoveMember = () => {
+    if (memberToRemove) {
+      removeMemberMutation.mutate(memberToRemove.id);
+      setMemberToRemove(null);
+      setShowRemoveMemberModal(false);
+    }
+  };
+
+  const handleLeaveProject = () => {
+    // Find current user's membership
+    const currentUserMember = project?.members?.find((m: any) => m.user._id === user?.id);
+    if (currentUserMember) {
+      setMemberToRemove({
+        id: currentUserMember._id,
+        name: user?.fullName || user?.username || 'You',
+        isCurrentUser: true
+      });
+      setShowRemoveMemberModal(true);
+    }
+  };
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return <ShieldCheckIcon className="h-4 w-4 text-red-600" />;
+      case 'editor':
+        return <PencilIcon className="h-4 w-4 text-blue-600" />;
+      case 'viewer':
+        return <EyeIcon className="h-4 w-4 text-green-600" />;
+      default:
+        return <UserCircleIcon className="h-4 w-4 text-gray-600" />;
+    }
+  };
+
+  const getRoleBadgeClass = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'editor':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'viewer':
+        return 'bg-green-100 text-green-800 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
   // Auto-select the project in sidebar when viewing it
   useEffect(() => {
     if (project && (!selectedProject || selectedProject._id !== project._id)) {
       setSelectedProject(project);
     }
   }, [project, selectedProject, setSelectedProject]);
+
+  // Fetch friends list
+  useEffect(() => {
+    const fetchFriends = async () => {
+      try {
+        const response = await api.get('/users/friends');
+        setFriends(response.data.friends);
+      } catch (error) {
+        console.error('Failed to fetch friends:', error);
+      }
+    };
+
+    fetchFriends();
+  }, []);
 
   if (isLoading) {
     return (
@@ -216,13 +489,9 @@ const ProjectSettingsPage: React.FC = () => {
               <button 
                 onClick={() => setShowInviteModal(true)}
                 disabled={!isAdmin}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  isAdmin 
-                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                className="flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
               >
-                <PlusIcon className="h-4 w-4 mr-2 inline" />
+                <PlusIcon className="h-4 w-4 mr-2" />
                 Invite Members
               </button>
             )}
@@ -230,7 +499,6 @@ const ProjectSettingsPage: React.FC = () => {
           
           <div className="space-y-3">
             {project.members?.map((member: any) => {
-              const roleInfo = getRoleDisplayInfo(member.role);
               const isExpanded = expandedMembers.has(member._id);
               const isCreator = member.user?._id === project.creator._id;
               
@@ -259,9 +527,36 @@ const ProjectSettingsPage: React.FC = () => {
                     </div>
                     
                     <div className="flex items-center space-x-3">
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${roleInfo.color} ${roleInfo.bgColor}`}>
-                        {roleInfo.label}
-                      </span>
+                      {/* Role Badge/Selector */}
+                      {(isAdmin && !isCreator) || (member.user._id === user?.id && member.role === 'admin' && member.user._id !== project?.creator?._id) ? (
+                        <div className="relative">
+                          <select
+                            value={member.role}
+                            onChange={(e) => {
+                              handleRoleChange(member._id, e.target.value);
+                            }}
+                            disabled={updateMemberRoleMutation.isPending}
+                            className={`
+                              appearance-none px-3 py-2 pr-8 text-sm font-medium border rounded-lg cursor-pointer
+                              ${getRoleBadgeClass(member.role)}
+                              focus:outline-none focus:ring-2 focus:ring-teal-500
+                            `}
+                          >
+                            <option value="viewer">Viewer</option>
+                            <option value="editor">Editor</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          <ChevronDownIcon className="absolute right-2 top-1/2 transform -translate-y-1/2 h-3 w-3 pointer-events-none" />
+                        </div>
+                      ) : (
+                        <div className={`
+                          flex items-center space-x-2 px-3 py-2 border rounded-lg text-sm font-medium
+                          ${getRoleBadgeClass(member.role)}
+                        `}>
+                          {getRoleIcon(member.role)}
+                          <span className="capitalize">{member.role}</span>
+                        </div>
+                      )}
                       
                       {isAdmin && !isCreator && (
                         <button
@@ -288,40 +583,15 @@ const ProjectSettingsPage: React.FC = () => {
                   
                   {isExpanded && isAdmin && !isCreator && (
                     <div className="px-4 pb-4 border-t bg-gray-50">
-                      <div className="pt-4 space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Change Role
-                          </label>
-                          <select
-                            value={member.role}
-                            onChange={(e) => {
-                              updateMemberRoleMutation.mutate({
-                                memberId: member._id,
-                                role: e.target.value
-                              });
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            disabled={updateMemberRoleMutation.isPending}
-                          >
-                            <option value="viewer">Viewer</option>
-                            <option value="editor">Editor</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                        </div>
-                        
+                      <div className="pt-4">
                         <div className="flex justify-end">
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Are you sure you want to remove ${member.user?.fullName} from the project?`)) {
-                                removeMemberMutation.mutate(member._id);
-                              }
-                            }}
+                            onClick={() => handleRemoveMember(member)}
                             disabled={removeMemberMutation.isPending}
-                            className="px-3 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 disabled:opacity-50"
+                            className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
                           >
                             <TrashIcon className="h-4 w-4 mr-1 inline" />
-                            Remove Member
+                            {member.user._id === user?.id ? 'Leave Project' : 'Remove Member'}
                           </button>
                         </div>
                       </div>
@@ -422,44 +692,44 @@ const ProjectSettingsPage: React.FC = () => {
         {isAdmin ? (
           <>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Archive Project</h3>
-              <div className="flex items-start space-x-3">
-                <ArchiveBoxIcon className="h-5 w-5 text-amber-600 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-gray-900 mb-2">
-                    Archive this project to make it read-only. Archived projects can be restored later.
-                  </p>
-                  <button 
-                    onClick={() => setShowArchiveModal(true)}
-                    disabled={archiveProjectMutation.isPending}
-                    className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
-                  >
-                    {archiveProjectMutation.isPending ? 'Archiving...' : 'Archive Project'}
-                  </button>
-                </div>
+              <div className="flex items-center space-x-2 mb-4">
+                <ArchiveBoxIcon className="h-5 w-5 text-amber-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Archive Project</h3>
+              </div>
+              <div>
+                <p className="text-gray-900 mb-4">
+                  Archive this project to make it read-only. Archived projects can be restored later.
+                </p>
+                <button 
+                  onClick={() => setShowArchiveModal(true)}
+                  disabled={archiveProjectMutation.isPending}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {archiveProjectMutation.isPending ? 'Archiving...' : 'Archive Project'}
+                </button>
               </div>
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-red-200 p-6">
               <h3 className="text-lg font-semibold text-red-900 mb-4">Danger Zone</h3>
               <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-red-900 mb-2">
-                      <strong>Delete this project</strong>
-                    </p>
-                    <p className="text-red-700 mb-4">
-                      Once you delete a project, there is no going back. Please be certain.
-                    </p>
-                    <button 
-                      onClick={() => setShowDeleteModal(true)}
-                      disabled={deleteProjectMutation.isPending}
-                      className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
-                    </button>
+                <div className="border-t border-red-200 pt-4">
+                  <div className="flex items-center space-x-2 mb-4">
+                    <TrashIcon className="h-5 w-5 text-red-600" />
+                    <h4 className="text-lg font-semibold text-red-900">Delete Project</h4>
                   </div>
+                  <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+                    <p className="text-red-800 font-medium">
+                      ⚠️ Warning: Once you delete a project, there is no going back. Please be certain.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setShowDeleteModal(true)}
+                    disabled={deleteProjectMutation.isPending}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -500,21 +770,35 @@ const ProjectSettingsPage: React.FC = () => {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center space-x-3">
-          <div className="p-3 bg-gray-100 rounded-lg">
-            <CogIcon className="h-6 w-6 text-gray-600" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-gray-100 rounded-lg">
+              <CogIcon className="h-6 w-6 text-gray-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Project Settings</h1>
+              <p className="text-gray-600">
+                Manage settings and preferences for {project.name}
+                {userRole && (
+                  <span className="ml-2 text-sm">
+                    (You have {getRoleDisplayInfo(userRole).label} access)
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Project Settings</h1>
-            <p className="text-gray-600">
-              Manage settings and preferences for {project.name}
-              {userRole && (
-                <span className="ml-2 text-sm">
-                  (You have {getRoleDisplayInfo(userRole).label} access)
-                </span>
-              )}
-            </p>
-          </div>
+          
+          {/* Leave Project Button - Show for all members except creator */}
+          {project && user && project.creator._id !== user.id && (
+            <button
+              onClick={handleLeaveProject}
+              disabled={removeMemberMutation.isPending}
+              className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              <TrashIcon className="h-4 w-4" />
+              <span>Leave Project</span>
+            </button>
+          )}
         </div>
 
         {/* Settings Navigation */}
@@ -558,30 +842,85 @@ const ProjectSettingsPage: React.FC = () => {
 
         {/* Invite Member Modal */}
         {showInviteModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
-                <button 
-                  onClick={() => setShowInviteModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
-              </div>
+          <div 
+            className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowSuggestions(false);
+              }
+            }}
+          >
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Invite Team Member</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Send an invitation to join this project. The user will receive a notification and can accept or decline the invitation.
+              </p>
               
-              <div className="space-y-4">
+              <form onSubmit={handleInviteMember} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Address
+                    Email Address or Friend
                   </label>
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="user@example.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={inviteEmail}
+                      onChange={handleMemberInputChange}
+                      placeholder="Enter email or search friends..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      onFocus={() => inviteEmail.length > 0 && setShowSuggestions(true)}
+                      required
+                    />
+                    
+                    {/* Suggestions dropdown */}
+                    {showSuggestions && filteredSuggestions.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        {filteredSuggestions.map((suggestion, index) => (
+                          <div
+                            key={suggestion._id || index}
+                            onClick={() => selectUser(suggestion)}
+                            className={`px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between ${
+                              suggestion.status === 'member' ? 'opacity-60 cursor-not-allowed' : 
+                              suggestion.status === 'pending' ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center">
+                                <span className="text-sm font-medium text-teal-800">
+                                  {suggestion.fullName?.charAt(0)?.toUpperCase() || '?'}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{suggestion.fullName}</p>
+                                <p className="text-xs text-gray-500">
+                                  {suggestion.username ? `@${suggestion.username}` : suggestion.email}
+                                </p>
+                              </div>
+                            </div>
+                            
+                            {/* Status indicator */}
+                            <div className="flex items-center">
+                              {suggestion.status === 'member' && (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                                  Already Member
+                                </span>
+                              )}
+                              {suggestion.status === 'pending' && (
+                                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">
+                                  Invite Sent
+                                </span>
+                              )}
+                              {suggestion.status === 'non-friend' && (
+                                <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-medium rounded-full">
+                                  Not a friend
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div>
@@ -591,35 +930,36 @@ const ProjectSettingsPage: React.FC = () => {
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as 'viewer' | 'editor' | 'admin')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                   >
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
-                    <option value="admin">Admin</option>
+                    <option value="viewer">Viewer (Read-only access)</option>
+                    <option value="editor">Editor (Can modify content)</option>
+                    <option value="admin">Admin (Full access)</option>
                   </select>
                 </div>
-              </div>
-              
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    inviteMemberMutation.mutate({ email: inviteEmail, role: inviteRole });
-                    setShowInviteModal(false);
-                    setInviteEmail('');
-                    setInviteRole('viewer');
-                  }}
-                  disabled={!inviteEmail || inviteMemberMutation.isPending}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {inviteMemberMutation.isPending ? 'Inviting...' : 'Send Invite'}
-                </button>
-              </div>
+                
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={inviteMemberMutation.isPending}
+                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowInviteModal(false);
+                      setInviteEmail('');
+                      setInviteRole('viewer');
+                      setShowSuggestions(false);
+                    }}
+                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -742,6 +1082,118 @@ const ProjectSettingsPage: React.FC = () => {
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                 >
                   {deleteProjectMutation.isPending ? 'Deleting...' : 'I understand, delete this project'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Role Change Confirmation Modal */}
+        {showRoleChangeModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Confirm Role Change</h3>
+                <button 
+                  onClick={() => {
+                    setShowRoleChangeModal(false);
+                    setPendingRoleChange(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <ExclamationTriangleIcon className="h-8 w-8 text-amber-500" />
+                  <div>
+                    <p className="font-medium text-gray-900">Warning: You are about to demote yourself</p>
+                  </div>
+                </div>
+                <p className="text-gray-600">
+                  You are changing your role from <strong>Admin</strong> to <strong className="capitalize">{pendingRoleChange?.newRole}</strong>. 
+                </p>
+                <p className="text-gray-600 mt-2">
+                  <strong>Important:</strong> You will not be able to revert this change unless another admin promotes you back to admin status.
+                </p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowRoleChangeModal(false);
+                    setPendingRoleChange(null);
+                  }}
+                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmRoleChange}
+                  disabled={updateMemberRoleMutation.isPending}
+                  className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                >
+                  {updateMemberRoleMutation.isPending ? 'Updating...' : 'Confirm Change'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Remove Member Confirmation Modal */}
+        {showRemoveMemberModal && memberToRemove && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {memberToRemove.isCurrentUser ? 'Leave Project' : 'Remove Member'}
+                </h3>
+                <button 
+                  onClick={() => {
+                    setShowRemoveMemberModal(false);
+                    setMemberToRemove(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {memberToRemove.isCurrentUser ? 'Confirm Leave Project' : 'Confirm Remove Member'}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-gray-600">
+                  {memberToRemove.isCurrentUser 
+                    ? 'Are you sure you want to leave this project? You will lose access to all project data and will need to be re-invited to rejoin.'
+                    : `Are you sure you want to remove ${memberToRemove.name} from this project? They will lose access to all project data.`
+                  }
+                </p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowRemoveMemberModal(false);
+                    setMemberToRemove(null);
+                  }}
+                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmRemoveMember}
+                  disabled={removeMemberMutation.isPending}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  {removeMemberMutation.isPending ? 'Removing...' : (memberToRemove.isCurrentUser ? 'Leave Project' : 'Remove Member')}
                 </button>
               </div>
             </div>

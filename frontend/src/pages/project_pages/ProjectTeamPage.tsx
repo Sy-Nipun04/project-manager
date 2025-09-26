@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useProject } from '../../hooks/useProject';
 import { useApiError, ErrorMessage } from '../../hooks/useApiError';
 import { 
   UsersIcon, 
@@ -15,7 +16,8 @@ import {
   UserCircleIcon,
   ShieldCheckIcon,
   EyeIcon,
-  PencilIcon
+  PencilIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -34,7 +36,6 @@ const ProjectTeamPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const { user: currentUser } = useAuth();
-  const { can, isMember } = usePermissions();
   const { error, handleApiError, clearError } = useApiError();
   const queryClient = useQueryClient();
   
@@ -44,15 +45,12 @@ const ProjectTeamPage: React.FC = () => {
   const [friends, setFriends] = useState<any[]>([]);
   const [filteredSuggestions, setFilteredSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const response = await api.get(`/projects/${projectId}`);
-      return response.data.project;
-    },
-    enabled: !!projectId
-  });
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
+
+  // Get permissions using fresh project data
+  const { can, isMember } = usePermissions(project);
 
   // Auto-select the project in sidebar
   useEffect(() => {
@@ -93,7 +91,7 @@ const ProjectTeamPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       setShowAddMember(false);
       setMemberEmail('');
       setMemberRole('viewer');
@@ -115,11 +113,30 @@ const ProjectTeamPage: React.FC = () => {
       });
       return response.data;
     },
+    onMutate: async ({ memberId, role }) => {
+      await queryClient.cancelQueries({ queryKey: ['project', projectId] });
+      const previousProject = queryClient.getQueryData(['project', projectId]);
+      
+      updateProjectOptimistically((oldProject: any) => {
+        if (!oldProject?.members) return oldProject;
+        return {
+          ...oldProject,
+          members: oldProject.members.map((member: any) => 
+            member._id === memberId ? { ...member, role } : member
+          )
+        };
+      });
+      
+      return { previousProject };
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       toast.success('Role updated successfully');
     },
-    onError: (error: any) => {
+    onError: (error: any, _, context) => {
+      if (context?.previousProject) {
+        queryClient.setQueryData(['project', projectId], context.previousProject);
+      }
       handleApiError(error);
       const message = error.response?.data?.userFriendlyMessage || error.response?.data?.message || 'Failed to update role';
       toast.error(message);
@@ -133,7 +150,7 @@ const ProjectTeamPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       toast.success('Member removed successfully');
     },
     onError: (error: any) => {
@@ -308,10 +325,23 @@ const ProjectTeamPage: React.FC = () => {
     );
   }
 
-  const sortedMembers = [...(project.members || [])].sort((a, b) => {
-    const roleOrder: { [key: string]: number } = { admin: 3, editor: 2, viewer: 1 };
-    return (roleOrder[b.role] || 0) - (roleOrder[a.role] || 0);
-  });
+  const filteredAndSortedMembers = [...(project.members || [])]
+    .filter((member) => {
+      if (!searchQuery.trim()) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        member.user.fullName?.toLowerCase().includes(query) ||
+        member.user.username?.toLowerCase().includes(query) ||
+        member.user.email?.toLowerCase().includes(query) ||
+        member.role.toLowerCase().includes(query)
+      );
+    })
+    .sort((a, b) => {
+      const roleOrder: { [key: string]: number } = { admin: 3, editor: 2, viewer: 1 };
+      return (roleOrder[b.role] || 0) - (roleOrder[a.role] || 0);
+    });
+
+  const sortedMembers = filteredAndSortedMembers;
 
   return (
     <Layout>
@@ -404,7 +434,21 @@ const ProjectTeamPage: React.FC = () => {
         {/* Team Members List */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Team Members</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Team Members</h2>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="block w-64 pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm"
+                  placeholder="Search members..."
+                />
+              </div>
+            </div>
           </div>
           <div className="p-6">
             <div className="space-y-4">

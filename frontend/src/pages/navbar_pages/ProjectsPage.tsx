@@ -3,9 +3,10 @@ import Layout from '../../components/Layout';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
+import { useProjects } from '../../hooks/useProject';
 import toast from 'react-hot-toast';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 interface User {
   _id: string;
@@ -42,9 +43,10 @@ const ProjectsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [createFormData, setCreateFormData] = useState<CreateProjectData>({
     name: '',
     description: '',
@@ -56,14 +58,7 @@ const ProjectsPage: React.FC = () => {
   const [showFriendsSuggestions, setShowFriendsSuggestions] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const { data: projects = [], isLoading: loading, error } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const response = await api.get('/projects');
-      return response.data.projects;
-    },
-    enabled: !!currentUser
-  });
+  const { projects, isLoading: loading, error, invalidateProjects } = useProjects();
 
   const createProjectMutation = useMutation({
     mutationFn: async (projectData: CreateProjectData) => {
@@ -71,8 +66,7 @@ const ProjectsPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['projects', (currentUser as any)?.id] });
+      invalidateProjects();
       
       setLocalError(null);
       setCreateFormData({ name: '', description: '', memberEmails: [] });
@@ -244,6 +238,20 @@ const ProjectsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Search Bar */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="relative">
+            <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search projects..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
         {(error || localError) && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4">
             <p className="text-red-600">
@@ -399,20 +407,39 @@ const ProjectsPage: React.FC = () => {
 
         {/* Projects List */}
         <div className="space-y-4">
-          {projects.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">No Projects Yet</h2>
-              <p className="text-gray-600 mb-4">Create your first project to get started with team collaboration.</p>
-              <button
-                onClick={() => setShowCreateForm(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-teal-600 hover:bg-teal-700"
-              >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Create Your First Project
-              </button>
-            </div>
-          ) : (
-            projects.map((project: Project) => (
+          {(() => {
+            const filteredProjects = projects.filter((project: Project) => 
+              project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              project.creator.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+
+            if (filteredProjects.length === 0 && projects.length > 0 && searchQuery) {
+              return (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">No Projects Found</h2>
+                  <p className="text-gray-600">No projects match your search criteria. Try a different search term.</p>
+                </div>
+              );
+            }
+            
+            if (projects.length === 0) {
+              return (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">No Projects Yet</h2>
+                  <p className="text-gray-600 mb-4">Create your first project to get started with team collaboration.</p>
+                  <button
+                    onClick={() => setShowCreateForm(true)}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-teal-600 hover:bg-teal-700"
+                  >
+                    <PlusIcon className="h-4 w-4 mr-2" />
+                    Create Your First Project
+                  </button>
+                </div>
+              );
+            }
+            
+            return filteredProjects.map((project: Project) => (
               <div key={project._id} className="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div
                   className="p-6 cursor-pointer hover:bg-gray-50"
@@ -512,8 +539,8 @@ const ProjectsPage: React.FC = () => {
                   </div>
                 )}
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
       </div>
     </Layout>

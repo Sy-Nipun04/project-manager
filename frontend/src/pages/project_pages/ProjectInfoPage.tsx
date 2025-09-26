@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useProject } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
 import { InformationCircleIcon, UserIcon, PencilIcon, DocumentTextIcon, CheckIcon, XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import ReactMarkdown from 'react-markdown';
@@ -16,7 +17,6 @@ import toast from 'react-hot-toast';
 const ProjectInfoPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
-  const { can, isMember, userRole } = usePermissions();
   const queryClient = useQueryClient();
   
   // State for markdown editing
@@ -33,14 +33,10 @@ const ProjectInfoPage: React.FC = () => {
 
 
 
-  const { data: project, isLoading } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const response = await api.get(`/projects/${projectId}`);
-      return response.data.project;
-    },
-    enabled: !!projectId
-  });
+  const { project, isLoading, invalidateProject } = useProject(projectId);
+
+  // Get permissions using fresh project data
+  const { can, isMember, userRole } = usePermissions(project);
 
   // Mutation to save markdown details
   const updateProjectDetailsMutation = useMutation({
@@ -54,7 +50,7 @@ const ProjectInfoPage: React.FC = () => {
     onSuccess: (updatedProject) => {
       console.log('Updated project:', updatedProject);
       queryClient.setQueryData(['project', projectId], updatedProject);
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       toast.success('Project details updated successfully');
       setIsEditingDetails(false);
       setIsSaving(false);
@@ -81,7 +77,7 @@ const ProjectInfoPage: React.FC = () => {
     onSuccess: (updatedProject) => {
       console.log('Project info updated:', updatedProject);
       queryClient.setQueryData(['project', projectId], updatedProject);
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      invalidateProject();
       
       const nameChanged = projectName !== project?.name;
       if (nameChanged) {
@@ -257,7 +253,7 @@ const ProjectInfoPage: React.FC = () => {
             {can.editProjectInfo() && (
               <button 
                 onClick={handleEditProject}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                className="flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
               >
                 <PencilIcon className="h-4 w-4 mr-2" />
                 Edit Project Information

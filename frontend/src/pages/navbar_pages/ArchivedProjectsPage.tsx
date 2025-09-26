@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useProjects, useSidebarProjects } from '../../hooks/useProject';
 import toast from 'react-hot-toast';
 import { 
   ChevronDownIcon, 
@@ -11,7 +12,8 @@ import {
   UserIcon, 
   CalendarIcon, 
   ArchiveBoxIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 
 interface User {
@@ -48,7 +50,10 @@ const ArchivedProjectsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { invalidateProjects } = useProjects();
+  const { invalidateSidebarProjects } = useSidebarProjects(currentUser?.id);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
   
   const { 
     data: archivedProjects = [], 
@@ -82,10 +87,10 @@ const ArchivedProjectsPage: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      // Invalidate all relevant queries
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // Invalidate all relevant queries using hooks
+      invalidateProjects();
+      invalidateSidebarProjects();
       queryClient.invalidateQueries({ queryKey: ['projects', 'archived'] });
-      queryClient.invalidateQueries({ queryKey: ['projects', (currentUser as any)?.id] });
       
       toast.success('Project unarchived successfully. All members have been notified.');
     },
@@ -154,6 +159,20 @@ const ArchivedProjectsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Search Bar */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="relative">
+            <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search archived projects..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4">
             <p className="text-red-600">{(error as any)?.message || 'An error occurred'}</p>
@@ -162,7 +181,24 @@ const ArchivedProjectsPage: React.FC = () => {
 
         {/* Archived Projects List */}
         <div className="space-y-4">
-          {archivedProjects.length === 0 ? (
+          {(() => {
+            const filteredProjects = archivedProjects.filter((project: Project) => 
+              project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              project.creator.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+
+            if (filteredProjects.length === 0 && archivedProjects.length > 0 && searchQuery) {
+              return (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">No Archived Projects Found</h2>
+                  <p className="text-gray-600">No archived projects match your search criteria. Try a different search term.</p>
+                </div>
+              );
+            }
+            
+            if (archivedProjects.length === 0) {
+              return (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
               <ArchiveBoxIcon className="h-12 w-12 mx-auto text-gray-400 mb-4" />
               <h2 className="text-lg font-semibold text-gray-900 mb-2">No Archived Projects</h2>
@@ -176,9 +212,11 @@ const ArchivedProjectsPage: React.FC = () => {
                 <ArrowLeftIcon className="h-4 w-4 mr-2" />
                 Back to Projects
               </button>
-            </div>
-          ) : (
-            archivedProjects.map((project: Project) => (
+              </div>
+              );
+            }
+            
+            return filteredProjects.map((project: Project) => (
               <div key={project._id} className="bg-white rounded-lg shadow-sm border border-gray-200 opacity-90">
                 <div
                   className="p-6 cursor-pointer hover:bg-gray-50"
@@ -276,8 +314,8 @@ const ArchivedProjectsPage: React.FC = () => {
                   </div>
                 )}
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
 
         {/* Info Note */}
