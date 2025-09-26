@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { useLocation } from 'react-router-dom';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon } from '@heroicons/react/24/outline';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon } from '@heroicons/react/24/outline';
 
 interface User {
   _id: string;
@@ -39,12 +41,10 @@ interface CreateProjectData {
 const ProjectsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const location = useLocation();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
   const [createFormData, setCreateFormData] = useState<CreateProjectData>({
     name: '',
     description: '',
@@ -54,9 +54,44 @@ const ProjectsPage: React.FC = () => {
   const [friends, setFriends] = useState<User[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<User[]>([]);
   const [showFriendsSuggestions, setShowFriendsSuggestions] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const { data: projects = [], isLoading: loading, error } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const response = await api.get('/projects');
+      return response.data.projects;
+    },
+    enabled: !!currentUser
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async (projectData: CreateProjectData) => {
+      const response = await api.post('/projects', projectData);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['projects', (currentUser as any)?.id] });
+      
+      setLocalError(null);
+      setCreateFormData({ name: '', description: '', memberEmails: [] });
+      setMemberEmailInput('');
+      setShowCreateForm(false);
+      setShowFriendsSuggestions(false);
+      
+      if (createFormData.memberEmails.length > 0) {
+        toast.success(`Project created! Invitations sent to ${createFormData.memberEmails.length} member(s).`);
+      } else {
+        toast.success('Project created successfully!');
+      }
+    },
+    onError: (err: any) => {
+      setLocalError(err.response?.data?.message || 'Failed to create project');
+    }
+  });
 
   useEffect(() => {
-    fetchProjects();
     fetchFriends();
   }, []);
 
@@ -78,17 +113,7 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-  const fetchProjects = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/projects');
-      setProjects(response.data.projects);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch projects');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const toggleProjectExpansion = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -100,33 +125,11 @@ const ProjectsPage: React.FC = () => {
     setExpandedProjects(newExpanded);
   };
 
-  const handleCreateProject = async (e: React.FormEvent) => {
+  const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
     if (!createFormData.name.trim()) return;
 
-    try {
-      setCreateLoading(true);
-      await api.post('/projects', createFormData);
-      
-      // Show success message
-      setError(null);
-      
-      // Reset form and refresh projects
-      setCreateFormData({ name: '', description: '', memberEmails: [] });
-      setMemberEmailInput('');
-      setShowCreateForm(false);
-      setShowFriendsSuggestions(false);
-      await fetchProjects();
-      
-      // Show invite sent notification if members were invited
-      if (createFormData.memberEmails.length > 0) {
-        alert(`Project created! Invitations sent to ${createFormData.memberEmails.length} member(s).`);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create project');
-    } finally {
-      setCreateLoading(false);
-    }
+    createProjectMutation.mutate(createFormData);
   };
 
   const handleMemberInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +169,7 @@ const ProjectsPage: React.FC = () => {
     // Check if user is trying to add themselves
     if (trimmedEmail.toLowerCase() === (currentUser as any)?.email?.toLowerCase() || 
         trimmedEmail.toLowerCase() === (currentUser as any)?.username?.toLowerCase()) {
-      setError('You cannot add yourself to a project');
+      setLocalError('You cannot add yourself to a project');
       return;
     }
     
@@ -222,20 +225,32 @@ const ProjectsPage: React.FC = () => {
             <p className="text-gray-600">Manage your projects and teams</p>
           </div>
           
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
-          >
-            <PlusIcon className="h-4 w-4 mr-2" />
-            Create Project
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => navigate('/archived-projects')}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
+            >
+              <ArchiveBoxIcon className="h-4 w-4 mr-2" />
+              Archived Projects
+            </button>
+            
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
+            >
+              <PlusIcon className="h-4 w-4 mr-2" />
+              Create Project
+            </button>
+          </div>
         </div>
 
-        {error && (
+        {(error || localError) && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-600">{error}</p>
+            <p className="text-red-600">
+              {localError || (error as any)?.message || 'An error occurred'}
+            </p>
             <button 
-              onClick={() => setError(null)}
+              onClick={() => setLocalError(null)}
               className="text-red-600 hover:text-red-800 text-sm underline mt-1"
             >
               Dismiss
@@ -370,10 +385,10 @@ const ProjectsPage: React.FC = () => {
                     </button>
                     <button
                       type="submit"
-                      disabled={createLoading || !createFormData.name.trim()}
+                      disabled={createProjectMutation.isPending || !createFormData.name.trim()}
                       className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {createLoading ? 'Creating...' : 'Create Project'}
+                      {createProjectMutation.isPending ? 'Creating...' : 'Create Project'}
                     </button>
                   </div>
                 </form>
@@ -397,7 +412,7 @@ const ProjectsPage: React.FC = () => {
               </button>
             </div>
           ) : (
-            projects.map((project) => (
+            projects.map((project: Project) => (
               <div key={project._id} className="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div
                   className="p-6 cursor-pointer hover:bg-gray-50"
@@ -471,7 +486,7 @@ const ProjectsPage: React.FC = () => {
                       <div>
                         <h4 className="text-sm font-medium text-gray-900 mb-3">Team Members</h4>
                         <div className="space-y-2">
-                          {project.members.map((member) => (
+                          {project.members.map((member: ProjectMember) => (
                             <div key={member._id} className="flex items-center justify-between">
                               <div className="flex items-center space-x-3">
                                 <div className="flex-shrink-0">

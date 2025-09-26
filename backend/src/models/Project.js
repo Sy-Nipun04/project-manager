@@ -47,6 +47,15 @@ const projectSchema = new mongoose.Schema({
     isArchived: {
       type: Boolean,
       default: false
+    },
+    archivedAt: {
+      type: Date,
+      default: null
+    },
+    archivedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
     }
   },
   invitations: [{
@@ -67,7 +76,7 @@ const projectSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'declined'],
+      enum: ['pending', 'accepted', 'declined', 'invalid'],
       default: 'pending'
     },
     createdAt: {

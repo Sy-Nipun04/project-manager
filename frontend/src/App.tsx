@@ -11,6 +11,7 @@ import LoginPage from './pages/auth_pages/LoginPage';
 import RegisterPage from './pages/auth_pages/RegisterPage';
 import Dashboard from './pages/navbar_pages/Dashboard';
 import ProjectsPage from './pages/navbar_pages/ProjectsPage';
+import ArchivedProjectsPage from './pages/navbar_pages/ArchivedProjectsPage';
 import ProfilePage from './pages/ProfilePage';
 import NotificationsPage from './pages/navbar_pages/NotificationsPage';
 import SocialPage from './pages/navbar_pages/SocialPage';
@@ -55,6 +56,11 @@ function App() {
                 <Route path="/projects" element={
                   <ProtectedRoute>
                     <ProjectsPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/archived-projects" element={
+                  <ProtectedRoute>
+                    <ArchivedProjectsPage />
                   </ProtectedRoute>
                 } />
                 <Route path="/social" element={

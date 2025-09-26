@@ -50,6 +50,28 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get user's archived projects
+router.get('/archived', async (req, res) => {
+  try {
+    const projects = await Project.find({
+      $or: [
+        { creator: req.user._id },
+        { 'members.user': req.user._id }
+      ],
+      'settings.isArchived': true
+    })
+    .populate('creator', 'fullName username email profileImage')
+    .populate('members.user', 'fullName username email profileImage')
+    .populate('settings.archivedBy', 'fullName username email profileImage')
+    .sort({ 'settings.archivedAt': -1 });
+
+    res.json({ projects });
+  } catch (error) {
+    console.error('Get archived projects error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get single project
 router.get('/:projectId', checkProjectAccess('viewer'), async (req, res) => {
   try {
@@ -407,6 +429,10 @@ router.put('/:projectId/invitation/:invitationId', [
       return res.status(403).json({ message: 'Access denied' });
     }
 
+    if (invitation.status === 'invalid') {
+      return res.status(400).json({ message: 'This invitation is no longer valid. The project may have been archived or deleted.' });
+    }
+    
     if (invitation.status !== 'pending') {
       return res.status(400).json({ message: 'Invitation already processed' });
     }
@@ -569,6 +595,121 @@ router.delete('/:projectId/members/:memberId', checkProjectAdmin, async (req, re
   }
 });
 
+// Archive project
+router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
+  try {
+    const { notifyMembers = true } = req.body;
+    
+    // Check if project is already archived
+    if (req.project.settings.isArchived) {
+      return res.status(400).json({ message: 'Project is already archived' });
+    }
+
+    // Update project to archived status
+    req.project.settings.isArchived = true;
+    req.project.settings.archivedAt = new Date();
+    req.project.settings.archivedBy = req.user._id;
+    
+    // Invalidate pending invitations and update existing notifications
+    const pendingInvitations = req.project.invitations.filter(inv => inv.status === 'pending');
+    for (const invitation of pendingInvitations) {
+      invitation.status = 'invalid';
+      
+      // Update the original project_invitation notification to show it's invalid
+      await Notification.findOneAndUpdate(
+        { 
+          user: invitation.user,
+          type: 'project_invitation',
+          'data.project': req.project._id,
+          'data.invitation': invitation._id.toString()
+        },
+        { 
+          'data.isInvalid': true
+        }
+      );
+    }
+    
+    await req.project.save();
+
+    // Send notifications to all members if requested
+    if (notifyMembers) {
+      const memberIds = req.project.members
+        .filter(member => member.user.toString() !== req.user._id.toString())
+        .map(member => member.user);
+
+      for (const memberId of memberIds) {
+        await Notification.create({
+          user: memberId,
+          type: 'project_archived',
+          title: 'Project Archived',
+          message: `The project "${req.project.name}" has been archived by ${req.user.fullName}`,
+          data: { 
+            project: req.project._id,
+            archivedBy: req.user._id,
+            action: 'archived'
+          }
+        });
+      }
+    }
+
+    res.json({ 
+      message: 'Project archived successfully',
+      project: req.project 
+    });
+  } catch (error) {
+    console.error('Archive project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Unarchive project
+router.post('/:projectId/unarchive', checkProjectAdmin, async (req, res) => {
+  try {
+    const { notifyMembers = true } = req.body;
+    
+    // Check if project is actually archived
+    if (!req.project.settings.isArchived) {
+      return res.status(400).json({ message: 'Project is not archived' });
+    }
+
+    // Update project to unarchived status
+    req.project.settings.isArchived = false;
+    req.project.settings.archivedAt = null;
+    req.project.settings.archivedBy = null;
+    
+    await req.project.save();
+
+    // Send notifications to all members if requested
+    if (notifyMembers) {
+      const memberIds = req.project.members
+        .filter(member => member.user.toString() !== req.user._id.toString())
+        .map(member => member.user);
+
+      for (const memberId of memberIds) {
+        await Notification.create({
+          user: memberId,
+          type: 'project_unarchived',
+          title: 'Project Unarchived',
+          message: `The project "${req.project.name}" has been unarchived by ${req.user.fullName}`,
+          data: { 
+            project: req.project._id,
+            unarchivedBy: req.user._id,
+            action: 'unarchived'
+          }
+        });
+      }
+    }
+
+    res.json({ 
+      message: 'Project unarchived successfully',
+      project: req.project 
+    });
+  } catch (error) {
+    console.error('Unarchive project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Delete project
 router.delete('/:projectId', checkProjectAdmin, [
   body('projectName')
@@ -587,7 +728,7 @@ router.delete('/:projectId', checkProjectAdmin, [
       });
     }
 
-    const { projectName, password } = req.body;
+    const { projectName, password, notifyMembers = true } = req.body;
 
     // Verify project name
     if (projectName !== req.project.name) {
@@ -599,6 +740,46 @@ router.delete('/:projectId', checkProjectAdmin, [
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(400).json({ message: 'Incorrect password' });
+    }
+
+    // Invalidate pending invitations and update existing notifications
+    const pendingInvitations = req.project.invitations.filter(inv => inv.status === 'pending');
+    for (const invitation of pendingInvitations) {
+      invitation.status = 'invalid';
+      
+      // Update the original project_invitation notification to show it's invalid
+      await Notification.findOneAndUpdate(
+        { 
+          user: invitation.user,
+          type: 'project_invitation',
+          'data.project': req.project._id,
+          'data.invitation': invitation._id.toString()
+        },
+        { 
+          'data.isInvalid': true
+        }
+      );
+    }
+
+    // Send notifications to all members before deletion if requested
+    if (notifyMembers) {
+      const memberIds = req.project.members
+        .filter(member => member.user.toString() !== req.user._id.toString())
+        .map(member => member.user);
+
+      for (const memberId of memberIds) {
+        await Notification.create({
+          user: memberId,
+          type: 'project_deleted',
+          title: 'Project Deleted',
+          message: `The project "${req.project.name}" has been deleted by ${req.user.fullName}`,
+          data: { 
+            projectName: req.project.name,
+            deletedBy: req.user._id,
+            action: 'deleted'
+          }
+        });
+      }
     }
 
     // Delete project (this will cascade delete related tasks and notes)

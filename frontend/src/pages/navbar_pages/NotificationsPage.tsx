@@ -20,6 +20,7 @@ interface Notification {
     user?: string;
     invitation?: string;
     actionTaken?: 'accepted' | 'declined';
+    isInvalid?: boolean;
   };
   isRead: boolean;
   createdAt: string;
@@ -147,8 +148,26 @@ const NotificationsPage: React.FC = () => {
       
     } catch (err: any) {
       console.error('Project invitation error:', err);
-      const errorMessage = err.response?.data?.message || err.message || `Failed to ${action} project invitation`;
-      setError(errorMessage);
+      
+      // Check if the error is due to invalid invitation
+      if (err.response?.data?.message?.includes('no longer valid') || err.response?.data?.message?.includes('invalid')) {
+        // Mark this notification as invalid locally
+        setNotifications(prev => prev.map(n => 
+          n._id === notificationId 
+            ? { 
+                ...n, 
+                data: { 
+                  ...n.data, 
+                  isInvalid: true 
+                }
+              }
+            : n
+        ));
+        setError('This invitation is no longer valid.');
+      } else {
+        const errorMessage = err.response?.data?.message || err.message || `Failed to ${action} project invitation`;
+        setError(errorMessage);
+      }
     }
   };
 
@@ -285,7 +304,7 @@ const NotificationsPage: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                               <h3 className="text-sm font-medium text-gray-900">
-                                {notification.title}
+                                {notification.type === 'project_invitation' ? notification.title : notification.title}
                               </h3>
                               {!notification.isRead && (
                                 <span className="inline-block h-2 w-2 bg-blue-600 rounded-full"></span>
@@ -301,7 +320,7 @@ const NotificationsPage: React.FC = () => {
 
 
                       {/* Special handling for project invitations */}
-                      {notification.type === 'project_invitation' && !notification.data?.actionTaken && (
+                      {notification.type === 'project_invitation' && !notification.data?.actionTaken && !notification.data?.isInvalid && notification.data?.project && (
                         <div className="mt-3 flex space-x-2">
                           <button
                             onClick={() => handleProjectInvitation(notification._id, 'accept')}
@@ -317,6 +336,15 @@ const NotificationsPage: React.FC = () => {
                             <XMarkIcon className="h-3 w-3 mr-1" />
                             Decline
                           </button>
+                        </div>
+                      )}
+
+                      {/* Show invalid invitation status */}
+                      {notification.type === 'project_invitation' && (notification.data?.isInvalid || !notification.data?.project) && !notification.data?.actionTaken && (
+                        <div className="mt-3">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            Project Invitation Invalid
+                          </span>
                         </div>
                       )}
 

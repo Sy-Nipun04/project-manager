@@ -20,6 +20,9 @@ const notificationSchema = new mongoose.Schema({
       'role_changed',
       'project_updated',
       'project_name_changed',
+      'project_archived',
+      'project_unarchived',
+      'project_deleted',
       'friend_request',
       'friend_accepted',
       'invitation_accepted',
@@ -61,6 +64,10 @@ const notificationSchema = new mongoose.Schema({
       type: String,
       enum: ['accepted', 'declined'],
       default: null
+    },
+    isInvalid: {
+      type: Boolean,
+      default: false
     }
   },
   isRead: {

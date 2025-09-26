@@ -1,30 +1,45 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useAuth } from '../../contexts/AuthContext';
 import { getRoleDisplayInfo } from '../../lib/permissions';
 import { 
   CogIcon,
   UserIcon,
-  BellIcon,
-  ShieldCheckIcon,
+  PlusIcon,
   ArchiveBoxIcon,
   TrashIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon,
   KeyIcon,
-  GlobeAltIcon,
-  LockClosedIcon
+  XMarkIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  LockClosedIcon,
+  GlobeAltIcon
 } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
 
 const ProjectSettingsPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
-  const { can, isMember, userRole } = usePermissions();
+  const { isMember, userRole } = usePermissions();
+  const { user } = useAuth(); // Using for authentication context
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('general');
+  
+  // State for modals and forms
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'viewer' | 'editor' | 'admin'>('viewer');
+  const [deleteConfirmation, setDeleteConfirmation] = useState({ projectName: '', password: '' });
+  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -33,6 +48,98 @@ const ProjectSettingsPage: React.FC = () => {
       return response.data.project;
     },
     enabled: !!projectId
+  });
+
+  // Mutations
+  const inviteMemberMutation = useMutation({
+    mutationFn: async ({ email, role }: { email: string; role: string }) => {
+      const response = await api.post(`/projects/${projectId}/invite`, { email, role });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      setShowInviteModal(false);
+      setInviteEmail('');
+      setInviteRole('viewer');
+      toast.success('Invitation sent successfully');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to send invitation');
+    }
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (memberId: string) => {
+      const response = await api.delete(`/projects/${projectId}/members/${memberId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      toast.success('Member removed successfully');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to remove member');
+    }
+  });
+
+  const updateMemberRoleMutation = useMutation({
+    mutationFn: async ({ memberId, role }: { memberId: string; role: string }) => {
+      const response = await api.put(`/projects/${projectId}/members/${memberId}/role`, { role });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      toast.success('Member role updated successfully');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to update member role');
+    }
+  });
+
+  const archiveProjectMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post(`/projects/${projectId}/archive`, {
+        notifyMembers: true,
+        action: 'archived'
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['projects', (user as any)?.id] });
+      queryClient.removeQueries({ queryKey: ['project', projectId] });
+      
+      toast.success('Project archived successfully. All members have been notified.');
+      navigate('/projects');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to archive project');
+    }
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: async ({ projectName, password }: { projectName: string; password: string }) => {
+      const response = await api.delete(`/projects/${projectId}`, {
+        data: { 
+          projectName, 
+          password,
+          notifyMembers: true,
+          action: 'deleted'
+        }
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['projects', (user as any)?.id] });
+      queryClient.removeQueries({ queryKey: ['project', projectId] });
+      
+      toast.success('Project deleted successfully. All members have been notified.');
+      navigate('/projects');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to delete project');
+    }
   });
 
   // Auto-select the project in sidebar when viewing it
@@ -75,119 +182,165 @@ const ProjectSettingsPage: React.FC = () => {
   }
 
   // Check if user has admin access
-  const canManageSettings = can.editProjectInfo();
+  // Check if user can manage settings (using can.editProjectInfo internally in components)
 
   const tabs = [
     { id: 'general', name: 'General', icon: CogIcon },
     { id: 'members', name: 'Team & Permissions', icon: UserIcon },
-    { id: 'notifications', name: 'Notifications', icon: BellIcon },
-    { id: 'privacy', name: 'Privacy & Security', icon: ShieldCheckIcon },
     { id: 'advanced', name: 'Advanced', icon: ExclamationTriangleIcon }
   ];
 
   const renderGeneralSettings = () => (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Project Information</h3>
-        <div className="grid grid-cols-1 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Project Name
-            </label>
-            <input
-              type="text"
-              value={project.name}
-              disabled={!canManageSettings}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
-            <textarea
-              rows={3}
-              value={project.description || ''}
-              disabled={!canManageSettings}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 resize-none"
-              placeholder="Project description..."
-            />
-          </div>
-        </div>
-        {!canManageSettings && (
-          <p className="text-sm text-gray-500 mt-4">
-            You need admin permissions to edit project information.
+        <div className="text-center py-12">
+          <CogIcon className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">General Settings</h3>
+          <p className="text-gray-600">
+            General project settings will be available here soon.
           </p>
-        )}
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Project Status</h3>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <CheckCircleIcon className="h-5 w-5 text-green-600" />
-            <div>
-              <p className="font-medium text-gray-900">Active</p>
-              <p className="text-sm text-gray-500">Project is active and accessible to all members</p>
-            </div>
-          </div>
-          {canManageSettings && (
-            <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">
-              Change Status
-            </button>
-          )}
         </div>
       </div>
     </div>
   );
 
-  const renderMembersSettings = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Team Members</h3>
-          {can.addMembers() && (
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-              Invite Members
-            </button>
-          )}
-        </div>
-        
-        <div className="space-y-3">
-          {project.members?.map((member: any, index: number) => {
-            const roleInfo = getRoleDisplayInfo(member.role);
-            return (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                    <span className="text-white font-medium">
-                      {member.user?.fullName?.charAt(0) || 'U'}
-                    </span>
+  const renderMembersSettings = () => {
+    const isAdmin = userRole === 'admin';
+    
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Team Members</h3>
+            {isAdmin && (
+              <button 
+                onClick={() => setShowInviteModal(true)}
+                disabled={!isAdmin}
+                className={`px-4 py-2 rounded-md text-sm font-medium ${
+                  isAdmin 
+                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                <PlusIcon className="h-4 w-4 mr-2 inline" />
+                Invite Members
+              </button>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            {project.members?.map((member: any) => {
+              const roleInfo = getRoleDisplayInfo(member.role);
+              const isExpanded = expandedMembers.has(member._id);
+              const isCreator = member.user?._id === project.creator._id;
+              
+              return (
+                <div key={member._id} className={`border rounded-lg ${isAdmin ? '' : 'opacity-75'}`}>
+                  <div className="p-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                        <span className="text-white font-medium">
+                          {member.user?.fullName?.charAt(0) || 'U'}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-medium text-gray-900">
+                            {member.user?.fullName || 'Unknown User'}
+                          </p>
+                          {isCreator && (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                              Creator
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">@{member.user?.username || 'unknown'}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-3">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${roleInfo.color} ${roleInfo.bgColor}`}>
+                        {roleInfo.label}
+                      </span>
+                      
+                      {isAdmin && !isCreator && (
+                        <button
+                          onClick={() => {
+                            const newExpanded = new Set(expandedMembers);
+                            if (isExpanded) {
+                              newExpanded.delete(member._id);
+                            } else {
+                              newExpanded.add(member._id);
+                            }
+                            setExpandedMembers(newExpanded);
+                          }}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          {isExpanded ? (
+                            <ChevronUpIcon className="h-4 w-4" />
+                          ) : (
+                            <ChevronDownIcon className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">
-                      {member.user?.fullName || 'Unknown User'}
-                    </p>
-                    <p className="text-sm text-gray-500">@{member.user?.username || 'unknown'}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${roleInfo.color} ${roleInfo.bgColor}`}>
-                    {roleInfo.label}
-                  </span>
-                  {can.addMembers() && member.user?._id !== project.creator && (
-                    <button className="text-gray-400 hover:text-red-600">
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
+                  
+                  {isExpanded && isAdmin && !isCreator && (
+                    <div className="px-4 pb-4 border-t bg-gray-50">
+                      <div className="pt-4 space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Change Role
+                          </label>
+                          <select
+                            value={member.role}
+                            onChange={(e) => {
+                              updateMemberRoleMutation.mutate({
+                                memberId: member._id,
+                                role: e.target.value
+                              });
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            disabled={updateMemberRoleMutation.isPending}
+                          >
+                            <option value="viewer">Viewer</option>
+                            <option value="editor">Editor</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </div>
+                        
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Are you sure you want to remove ${member.user?.fullName} from the project?`)) {
+                                removeMemberMutation.mutate(member._id);
+                              }
+                            }}
+                            disabled={removeMemberMutation.isPending}
+                            className="px-3 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 disabled:opacity-50"
+                          >
+                            <TrashIcon className="h-4 w-4 mr-1 inline" />
+                            Remove Member
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+          
+          {!isAdmin && (
+            <p className="text-sm text-gray-500 mt-4">
+              You need admin permissions to manage team members.
+            </p>
+          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderNotificationSettings = () => (
     <div className="space-y-6">
@@ -261,60 +414,70 @@ const ProjectSettingsPage: React.FC = () => {
     </div>
   );
 
-  const renderAdvancedSettings = () => (
-    <div className="space-y-6">
-      {canManageSettings && (
-        <>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Archive Project</h3>
-            <div className="flex items-start space-x-3">
-              <ArchiveBoxIcon className="h-5 w-5 text-amber-600 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-gray-900 mb-2">
-                  Archive this project to make it read-only. Archived projects can be restored later.
-                </p>
-                <button className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700">
-                  Archive Project
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-red-200 p-6">
-            <h3 className="text-lg font-semibold text-red-900 mb-4">Danger Zone</h3>
-            <div className="space-y-4">
+  const renderAdvancedSettings = () => {
+    const isAdmin = userRole === 'admin';
+    
+    return (
+      <div className="space-y-6">
+        {isAdmin ? (
+          <>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Archive Project</h3>
               <div className="flex items-start space-x-3">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mt-0.5" />
+                <ArchiveBoxIcon className="h-5 w-5 text-amber-600 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-red-900 mb-2">
-                    <strong>Delete this project</strong>
+                  <p className="text-gray-900 mb-2">
+                    Archive this project to make it read-only. Archived projects can be restored later.
                   </p>
-                  <p className="text-red-700 mb-4">
-                    Once you delete a project, there is no going back. Please be certain.
-                  </p>
-                  <button className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
-                    Delete Project
+                  <button 
+                    onClick={() => setShowArchiveModal(true)}
+                    disabled={archiveProjectMutation.isPending}
+                    className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {archiveProjectMutation.isPending ? 'Archiving...' : 'Archive Project'}
                   </button>
                 </div>
               </div>
             </div>
-          </div>
-        </>
-      )}
 
-      {!canManageSettings && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="text-center py-8">
-            <KeyIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Admin Access Required</h3>
-            <p className="text-gray-600">
-              You need admin permissions to access advanced project settings.
-            </p>
+            <div className="bg-white rounded-lg shadow-sm border border-red-200 p-6">
+              <h3 className="text-lg font-semibold text-red-900 mb-4">Danger Zone</h3>
+              <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-red-900 mb-2">
+                      <strong>Delete this project</strong>
+                    </p>
+                    <p className="text-red-700 mb-4">
+                      Once you delete a project, there is no going back. Please be certain.
+                    </p>
+                    <button 
+                      onClick={() => setShowDeleteModal(true)}
+                      disabled={deleteProjectMutation.isPending}
+                      className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="text-center py-8">
+              <KeyIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Admin Access Required</h3>
+              <p className="text-gray-600">
+                You need admin permissions to access advanced project settings.
+              </p>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -392,6 +555,198 @@ const ProjectSettingsPage: React.FC = () => {
             custom fields, and more advanced project management options.
           </p>
         </div>
+
+        {/* Invite Member Modal */}
+        {showInviteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+                <button 
+                  onClick={() => setShowInviteModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Role
+                  </label>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as 'viewer' | 'editor' | 'admin')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => setShowInviteModal(false)}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    inviteMemberMutation.mutate({ email: inviteEmail, role: inviteRole });
+                    setShowInviteModal(false);
+                    setInviteEmail('');
+                    setInviteRole('viewer');
+                  }}
+                  disabled={!inviteEmail || inviteMemberMutation.isPending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {inviteMemberMutation.isPending ? 'Inviting...' : 'Send Invite'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Archive Confirmation Modal */}
+        {showArchiveModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Archive Project</h3>
+                <button 
+                  onClick={() => setShowArchiveModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600">
+                  Are you sure you want to archive "<strong>{project?.name}</strong>"? 
+                  The project will be hidden from your dashboard but can be restored later.
+                </p>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowArchiveModal(false)}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    archiveProjectMutation.mutate();
+                    setShowArchiveModal(false);
+                  }}
+                  disabled={archiveProjectMutation.isPending}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {archiveProjectMutation.isPending ? 'Archiving...' : 'Archive Project'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-red-900">Delete Project</h3>
+                <button 
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteConfirmation({ projectName: '', password: '' });
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600 mb-4">
+                  This action cannot be undone. This will permanently delete the project 
+                  "<strong>{project?.name}</strong>" and all associated data.
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Type the project name "{project?.name}" to confirm:
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmation.projectName}
+                      onChange={(e) => setDeleteConfirmation(prev => ({ ...prev, projectName: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Enter your password to confirm:
+                    </label>
+                    <input
+                      type="password"
+                      value={deleteConfirmation.password}
+                      onChange={(e) => setDeleteConfirmation(prev => ({ ...prev, password: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteConfirmation({ projectName: '', password: '' });
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    deleteProjectMutation.mutate({
+                      projectName: deleteConfirmation.projectName,
+                      password: deleteConfirmation.password
+                    });
+                  }}
+                  disabled={
+                    deleteConfirmation.projectName !== project?.name || 
+                    !deleteConfirmation.password || 
+                    deleteProjectMutation.isPending
+                  }
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteProjectMutation.isPending ? 'Deleting...' : 'I understand, delete this project'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );
