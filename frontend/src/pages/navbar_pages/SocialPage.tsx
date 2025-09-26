@@ -39,6 +39,9 @@ const SocialPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [friendToRemove, setFriendToRemove] = useState<User | null>(null);
+  const [sentRequests, setSentRequests] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchFriends();
@@ -101,8 +104,8 @@ const SocialPage: React.FC = () => {
       // Show success toast
       toast.success(`Friend request sent to ${user?.fullName || 'user'}!`);
       
-      // Remove user from search results after sending request
-      setSearchResults(prev => prev.filter(user => user._id !== userId));
+      // Add user to sent requests set
+      setSentRequests(prev => new Set([...prev, userId]));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to send friend request');
       toast.error(err.response?.data?.message || 'Failed to send friend request');
@@ -128,6 +131,17 @@ const SocialPage: React.FC = () => {
       // Remove from friend requests
       setFriendRequests(prev => prev.filter(req => req._id !== requestId));
       
+      // Handle request response
+      const processedRequest = friendRequests.find(req => req._id === requestId);
+      if (processedRequest) {
+        // Remove from sent requests regardless of action (accept/decline)
+        setSentRequests(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(processedRequest.user._id);
+          return newSet;
+        });
+      }
+      
       // If accepted, refresh friends list
       if (action === 'accept') {
         await fetchFriends();
@@ -139,16 +153,31 @@ const SocialPage: React.FC = () => {
     }
   };
 
-  const removeFriend = async (friendId: string) => {
-    if (!confirm('Are you sure you want to remove this friend?')) return;
+  const removeFriend = (friend: User) => {
+    setFriendToRemove(friend);
+    setShowRemoveModal(true);
+  };
+
+  const confirmRemoveFriend = async () => {
+    if (!friendToRemove) return;
 
     try {
-      await api.delete(`/users/friends/${friendId}`);
+      await api.delete(`/users/friends/${friendToRemove._id}`);
       setError(null);
-      setFriends(prev => prev.filter(friend => friend._id !== friendId));
+      setFriends(prev => prev.filter(friend => friend._id !== friendToRemove._id));
+      toast.success(`Removed ${friendToRemove.fullName} from your friends`);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to remove friend');
+      toast.error('Failed to remove friend');
+    } finally {
+      setShowRemoveModal(false);
+      setFriendToRemove(null);
     }
+  };
+
+  const cancelRemoveFriend = () => {
+    setShowRemoveModal(false);
+    setFriendToRemove(null);
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,7 +191,12 @@ const SocialPage: React.FC = () => {
   };
 
   const hasPendingRequest = (userId: string) => {
-    return friendRequests.some(req => req.user._id === userId && req.status === 'pending');
+    // Check for incoming requests (requests sent to current user)
+    const hasIncomingRequest = friendRequests.some(req => req.user._id === userId && req.status === 'pending');
+    // Check for outgoing requests (requests sent by current user)
+    const hasOutgoingRequest = sentRequests.has(userId);
+    
+    return hasIncomingRequest || hasOutgoingRequest;
   };
 
   const getOnlineStatus = (user: User) => {
@@ -339,7 +373,7 @@ const SocialPage: React.FC = () => {
                           Message
                         </button>
                         <button
-                          onClick={() => removeFriend(friend._id)}
+                          onClick={() => removeFriend(friend)}
                           className="text-red-600 hover:text-red-700 text-sm font-medium"
                         >
                           Remove
@@ -419,7 +453,7 @@ const SocialPage: React.FC = () => {
                           ) : hasPendingRequest(user._id) ? (
                             <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                               <ClockIcon className="h-3 w-3 mr-1" />
-                              Pending
+                              {sentRequests.has(user._id) ? 'Request Sent' : 'Pending'}
                             </span>
                           ) : (
                             <button
@@ -507,6 +541,45 @@ const SocialPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Remove Friend Confirmation Modal */}
+      {showRemoveModal && friendToRemove && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Remove Friend</h3>
+              <button 
+                onClick={cancelRemoveFriend}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-gray-600">
+                Are you sure you want to remove <span className="font-medium">{friendToRemove.fullName}</span> from your friends? 
+                This action cannot be undone.
+              </p>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={cancelRemoveFriend}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemoveFriend}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Remove Friend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };
