@@ -24,7 +24,8 @@ import {
   ShieldCheckIcon,
   EyeIcon,
   PencilIcon,
-  UserCircleIcon
+  UserCircleIcon,
+  ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -463,19 +464,64 @@ const ProjectSettingsPage: React.FC = () => {
     { id: 'advanced', name: 'Advanced', icon: ExclamationTriangleIcon }
   ];
 
-  const renderGeneralSettings = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="text-center py-12">
-          <CogIcon className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">General Settings</h3>
-          <p className="text-gray-600">
-            General project settings will be available here soon.
-          </p>
+  const renderGeneralSettings = () => {
+    const isProjectOwner = project && user && project.creator._id === user.id;
+    
+    return (
+      <div className="space-y-6">
+        {/* Project Information */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Project Information</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
+              <p className="text-sm text-gray-900">{project?.name}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <p className="text-sm text-gray-900">{project?.description || 'No description provided'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Created By</label>
+              <p className="text-sm text-gray-900">{project?.creator?.fullName}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Your Role</label>
+              <p className="text-sm text-gray-900">{userRole ? getRoleDisplayInfo(userRole).label : 'Unknown'}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Leave Project Section */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Leave Project</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-900 mb-1">Leave this project</p>
+              <p className="text-sm text-gray-600">
+                {isProjectOwner 
+                  ? 'Project owners cannot leave their own projects. You must transfer ownership or delete the project instead.'
+                  : 'You will lose access to all project data and will need to be re-invited to rejoin.'
+                }
+              </p>
+            </div>
+            <button
+              onClick={handleLeaveProject}
+              disabled={removeMemberMutation.isPending || isProjectOwner}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                isProjectOwner 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-red-600 text-white hover:bg-red-700 disabled:opacity-50'
+              }`}
+            >
+              <ArrowRightOnRectangleIcon className="h-4 w-4" />
+              <span>Leave Project</span>
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderMembersSettings = () => {
     const isAdmin = userRole === 'admin';
@@ -590,7 +636,7 @@ const ProjectSettingsPage: React.FC = () => {
                             disabled={removeMemberMutation.isPending}
                             className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
                           >
-                            <TrashIcon className="h-4 w-4 mr-1 inline" />
+                            <ArrowRightOnRectangleIcon className="h-4 w-4 mr-1 inline" />
                             {member.user._id === user?.id ? 'Leave Project' : 'Remove Member'}
                           </button>
                         </div>
@@ -787,18 +833,6 @@ const ProjectSettingsPage: React.FC = () => {
               </p>
             </div>
           </div>
-          
-          {/* Leave Project Button - Show for all members except creator */}
-          {project && user && project.creator._id !== user.id && (
-            <button
-              onClick={handleLeaveProject}
-              disabled={removeMemberMutation.isPending}
-              className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-            >
-              <TrashIcon className="h-4 w-4" />
-              <span>Leave Project</span>
-            </button>
-          )}
         </div>
 
         {/* Settings Navigation */}
@@ -829,15 +863,6 @@ const ProjectSettingsPage: React.FC = () => {
           <div className="p-6">
             {renderTabContent()}
           </div>
-        </div>
-
-        {/* Coming Soon Notice */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-4">
-          <h4 className="font-medium text-blue-900 mb-2">🚀 More Settings Coming Soon</h4>
-          <p className="text-sm text-blue-700">
-            We're working on additional features including integrations, automation rules, 
-            custom fields, and more advanced project management options.
-          </p>
         </div>
 
         {/* Invite Member Modal */}

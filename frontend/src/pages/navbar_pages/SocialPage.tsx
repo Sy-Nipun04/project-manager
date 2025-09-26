@@ -558,8 +558,7 @@ const SocialPage: React.FC = () => {
             
             <div className="mb-4">
               <p className="text-gray-600">
-                Are you sure you want to remove <span className="font-medium">{friendToRemove.fullName}</span> from your friends? 
-                This action cannot be undone.
+                Are you sure you want to remove <span className="font-medium">{friendToRemove.fullName}</span> from your friends?
               </p>
             </div>
             
