@@ -203,7 +203,10 @@ export const setupSocketHandlers = (io) => {
 
 // Helper function to emit notifications to specific users
 export const emitNotification = (io, userId, notification) => {
-  io.to(`user_${userId}`).emit('new_notification', notification);
+  if (io && userId) {
+    console.log('🔔 Emitting notification to user:', userId, notification.type);
+    io.to(userId.toString()).emit('notification_received', notification);
+  }
 };
 
 // Helper function to emit to project members

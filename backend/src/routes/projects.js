@@ -8,6 +8,8 @@ import Task from '../models/Task.js';
 import Bookmark from '../models/Bookmark.js';
 import Activity from '../models/Activity.js';
 import { checkProjectAccess, checkProjectAdmin, checkProjectEditor } from '../middleware/auth.js';
+import { getSocketInstance } from '../config/socketInstance.js';
+import { emitToProject, emitNotification } from '../config/socket.js';
 
 const router = express.Router();
 
@@ -147,7 +149,7 @@ router.post('/', [
           );
           
           if (invitation) {
-            await Notification.create({
+            const notification = await Notification.create({
               user: user._id,
               type: 'project_invitation',
               title: 'Project Invitation',
@@ -157,6 +159,9 @@ router.post('/', [
                 invitation: invitation._id.toString()  // Convert to string
               }
             });
+            
+            // Emit notification for real-time updates
+            emitNotification(getSocketInstance(), user._id, notification);
           }
         }
       }
@@ -167,6 +172,23 @@ router.post('/', [
       { path: 'creator', select: 'fullName username email profileImage' },
       { path: 'members.user', select: 'fullName username email profileImage' }
     ]);
+
+    // Emit real-time project created event
+    const io = getSocketInstance();
+    console.log('📋 Emitting project_created event for project:', project._id);
+    
+    // Emit to all members (including creator)
+    project.members.forEach(member => {
+      io.to(`user_${member.user._id || member.user}`).emit('project_created', {
+        project,
+        projectId: project._id,
+        createdBy: {
+          id: req.user._id,
+          name: req.user.fullName,
+          username: req.user.username
+        }
+      });
+    });
 
     res.status(201).json({
       message: 'Project created successfully',
@@ -252,6 +274,17 @@ router.put('/:projectId/settings', checkProjectAdmin, [
           console.error(`Failed to create notification for user ${memberId}:`, notificationError);
         }
       }
+    }
+
+    // Emit socket event for instant cache invalidation (hybrid approach)
+    const io = getSocketInstance();
+    if (io) {
+      console.log('📡 Emitting project_info_updated for project:', project._id);
+      emitToProject(io, project._id, 'project_info_updated', {
+        projectId: project._id,
+        changes: updateData,
+        updatedBy: req.user._id
+      });
     }
 
     res.json({
@@ -379,7 +412,7 @@ router.post('/:projectId/invite', checkProjectAdmin, [
     const invitationId = req.project.invitations[req.project.invitations.length - 1]._id;
 
     // Create notification
-    await Notification.create({
+    const notification = await Notification.create({
       user: user._id,
       type: 'project_invitation',
       title: 'Project Invitation',
@@ -389,6 +422,9 @@ router.post('/:projectId/invite', checkProjectAdmin, [
         invitation: invitationId.toString()  // Convert to string
       }
     });
+
+    // Emit notification for real-time updates
+    emitNotification(getSocketInstance(), user._id, notification);
 
     res.json({ message: 'Invitation sent successfully' });
   } catch (error) {
@@ -476,6 +512,20 @@ router.put('/:projectId/invitation/:invitationId', [
           user: req.user._id
         }
       });
+
+      // Emit socket event for instant cache invalidation (hybrid approach)
+      const io = getSocketInstance();
+      if (io) {
+        console.log('📡 Emitting member_added for project:', project._id);
+        emitToProject(io, project._id, 'member_added', {
+          projectId: project._id,
+          newMember: {
+            user: req.user._id,
+            role: invitation.role
+          },
+          joinedBy: req.user._id
+        });
+      }
     } else {
       // Notify the inviter about decline
       await Notification.create({
@@ -552,6 +602,29 @@ router.put('/:projectId/members/:memberId/role', checkProjectAdmin, [
       message: `Your role in "${req.project.name}" has been changed from ${oldRole} to ${role}`,
       data: { project: req.project._id }
     });
+
+    // Emit socket events for hybrid approach: notification + cache invalidation
+    const io = getSocketInstance();
+    
+    // Emit notification to the user whose role was changed
+    emitNotification(io, member.user, {
+      type: 'role_changed',
+      title: 'Role Updated',
+      message: `Your role in "${req.project.name}" has been changed from ${oldRole} to ${role}`,
+      data: { project: req.project._id }
+    });
+    
+    // Emit to all project members for instant cache invalidation
+    if (io) {
+      console.log('📡 Emitting role_changed for project:', req.project._id);
+      emitToProject(io, req.project._id, 'role_changed', {
+        projectId: req.project._id,
+        memberId,
+        oldRole,
+        newRole: role,
+        changedBy: req.user._id
+      });
+    }
 
     res.json({ message: 'Member role updated successfully' });
   } catch (error) {
@@ -631,6 +704,18 @@ router.delete('/:projectId/members/:memberId', checkProjectAccess('viewer'), asy
     req.project.members.pull(memberId);
     await req.project.save();
 
+    // Emit socket event for instant cache invalidation (hybrid approach)
+    const io = getSocketInstance();
+    if (io) {
+      console.log('📡 Emitting member_removed for project:', req.project._id);
+      emitToProject(io, req.project._id, 'member_removed', {
+        projectId: req.project._id,
+        memberId,
+        removedBy: req.user._id,
+        isCurrentUser
+      });
+    }
+
     const successMessage = isRemovingSelf 
       ? `You have successfully left the project "${req.project.name}"`
       : 'Member removed successfully';
@@ -678,6 +763,24 @@ router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
     
     await req.project.save();
 
+    // Emit project updated event to all members
+    const io = getSocketInstance();
+    const memberIds = req.project.members.map(member => member.user._id || member.user);
+    
+    console.log('📦 Emitting project_updated (archived) event for project:', req.project._id);
+    memberIds.forEach(memberId => {
+      io.to(`user_${memberId}`).emit('project_updated', {
+        project: req.project,
+        projectId: req.project._id,
+        updateType: 'archived',
+        archivedBy: {
+          id: req.user._id,
+          name: req.user.fullName,
+          username: req.user.username
+        }
+      });
+    });
+
     // Send notifications to all members if requested
     if (notifyMembers) {
       const memberIds = req.project.members
@@ -685,7 +788,7 @@ router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
         .map(member => member.user);
 
       for (const memberId of memberIds) {
-        await Notification.create({
+        const notification = await Notification.create({
           user: memberId,
           type: 'project_archived',
           title: 'Project Archived',
@@ -696,6 +799,9 @@ router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
             action: 'archived'
           }
         });
+        
+        // Emit notification for real-time updates
+        emitNotification(io, memberId, notification);
       }
     }
 
@@ -815,7 +921,7 @@ router.delete('/:projectId', checkProjectAdmin, [
         .map(member => member.user);
 
       for (const memberId of memberIds) {
-        await Notification.create({
+        const notification = await Notification.create({
           user: memberId,
           type: 'project_deleted',
           title: 'Project Deleted',
@@ -826,8 +932,29 @@ router.delete('/:projectId', checkProjectAdmin, [
             action: 'deleted'
           }
         });
+        
+        // Emit notification for real-time updates
+        emitNotification(getSocketInstance(), memberId, notification);
       }
     }
+
+    // Emit project deletion event to all members before deletion
+    const io = getSocketInstance();
+    const memberIds = req.project.members.map(member => member.user._id || member.user);
+    
+    console.log('🗑️ Emitting project_deleted event for project:', req.project._id);
+    memberIds.forEach(memberId => {
+      io.to(`user_${memberId}`).emit('project_deleted', {
+        project: req.project._id,
+        projectId: req.project._id,
+        projectName: req.project.name,
+        deletedBy: {
+          id: req.user._id,
+          name: req.user.fullName,
+          username: req.user.username
+        }
+      });
+    });
 
     // Delete project (this will cascade delete related tasks and notes)
     await Project.findByIdAndDelete(req.params.projectId);
@@ -978,6 +1105,18 @@ router.post('/:projectId/notes', checkProjectAccess('editor'), [
     // Format note for frontend compatibility with user-specific bookmark status
     const [noteFormatted] = await addBookmarkStatusToNotes([note], req.user._id);
 
+    // Emit real-time note created event
+    console.log('📡 Emitting note-created event for project:', req.params.projectId);
+    emitToProject(getSocketInstance(), req.params.projectId, 'note-created', {
+      note: noteFormatted,
+      projectId: req.params.projectId,
+      createdBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+
     res.status(201).json({
       message: 'Note created successfully',
       note: noteFormatted
@@ -1120,6 +1259,18 @@ router.put('/:projectId/notes/:noteId', checkProjectAccess('viewer'), [
     // Format note for frontend compatibility with user-specific bookmark status
     const [noteFormatted] = await addBookmarkStatusToNotes([updatedNote], req.user._id);
 
+    // Emit real-time note updated event
+    console.log('📡 Emitting note-updated event for project:', req.params.projectId);
+    emitToProject(getSocketInstance(), req.params.projectId, 'note-updated', {
+      note: noteFormatted,
+      projectId: req.params.projectId,
+      updatedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+
     res.json({
       message: 'Note updated successfully',
       note: noteFormatted
@@ -1174,6 +1325,18 @@ router.delete('/:projectId/notes/:noteId', checkProjectAccess('viewer'), async (
     
     // Clean up associated bookmarks
     await Bookmark.deleteMany({ note: req.params.noteId });
+
+    // Emit real-time note deleted event
+    console.log('📡 Emitting note-deleted event for project:', req.params.projectId);
+    emitToProject(getSocketInstance(), req.params.projectId, 'note-deleted', {
+      noteId: req.params.noteId,
+      projectId: req.params.projectId,
+      deletedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.json({ message: 'Note deleted successfully' });
   } catch (error) {

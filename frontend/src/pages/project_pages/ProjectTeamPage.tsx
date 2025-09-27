@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { useApiError, ErrorMessage } from '../../hooks/useApiError';
+import { useSocket } from '../../contexts/SocketContext';
 import { 
   UsersIcon, 
   PlusIcon, 
@@ -38,6 +39,8 @@ const ProjectTeamPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { error, handleApiError, clearError } = useApiError();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
+  const navigate = useNavigate();
   
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
@@ -47,7 +50,7 @@ const ProjectTeamPage: React.FC = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId, { enablePolling: true });
 
   // Get permissions using fresh project data
   const { can, isMember } = usePermissions(project);
@@ -72,6 +75,60 @@ const ProjectTeamPage: React.FC = () => {
 
     fetchFriends();
   }, []);
+
+  // Real-time team updates
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+    console.log('🚀 ProjectTeamPage: Setting up socket listeners for project:', projectId);
+
+    // Socket handlers for info updates removed - now using React Query polling
+    // Team info will be updated through React Query refetch mechanisms
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        navigate('/projects');
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Hybrid approach: Long polling (10min) + instant cache updates via sockets
+    socket.on('member_added', () => {
+      console.log('👥 Cache invalidation: member_added');
+      invalidateProject();
+    });
+    socket.on('member_removed', () => {
+      console.log('👥 Cache invalidation: member_removed');
+      invalidateProject();
+    });
+    socket.on('role_changed', () => {
+      console.log('👥 Cache invalidation: role_changed');
+      invalidateProject();
+    });
+    socket.on('project_updated', (data) => {
+      if (data.type === 'member_added' || data.type === 'member_removed' || data.type === 'role_changed') {
+        console.log('👥 Cache invalidation: project_updated -', data.type);
+        invalidateProject();
+      }
+    });
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      console.log('� ProjectTeamPage: Cleaning up socket listeners');
+      // Cache invalidation listeners cleanup
+      socket.off('member_added');
+      socket.off('member_removed');
+      socket.off('role_changed');
+      socket.off('project_updated');
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, invalidateProject]);
 
 
 

@@ -278,15 +278,19 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
     if (!socket || !projectId) return;
 
     // Join project room for real-time updates
-    socket.emit('join-project', projectId);
+    console.log('🔗 Joining project room:', projectId);
+    socket.emit('join_project', projectId);
 
     // Listen for task updates
-    const handleTaskCreated = () => {
+    const handleTaskCreated = (data: any) => {
+      console.log('📝 Received task-created event:', data);
       queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
     };
 
-    const handleTaskUpdated = (task: Task) => {
+    const handleTaskUpdated = (data: any) => {
+      console.log('✏️ Received task-updated event:', data);
+      const task = data.task;
       // Update specific task in cache
       queryClient.setQueryData(['task', task._id], task);
       // Invalidate tasks list to ensure consistency
@@ -301,6 +305,7 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
     };
 
     const handleTaskMoved = (data: { taskId: string; oldColumn: string; newColumn: string; task: Task }) => {
+      console.log('🔄 Received task-moved event:', data);
       // Update specific task in cache
       queryClient.setQueryData(['task', data.taskId], data.task);
       // Invalidate tasks list
@@ -313,12 +318,22 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
       queryClient.setQueryData(['task', data.taskId], data.task);
     };
 
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received in useRealTimeTaskUpdates:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        // Clear all project-related queries
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        queryClient.removeQueries({ queryKey: ['tasks', projectId] });
+      }
+    };
+
     // Register event listeners
     socket.on('task-created', handleTaskCreated);
     socket.on('task-updated', handleTaskUpdated);
     socket.on('task-deleted', handleTaskDeleted);
     socket.on('task-moved', handleTaskMoved);
     socket.on('task-comment-added', handleTaskCommentAdded);
+    socket.on('project_deleted', handleProjectDeleted);
 
     return () => {
       // Clean up listeners
@@ -327,9 +342,10 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
       socket.off('task-deleted', handleTaskDeleted);
       socket.off('task-moved', handleTaskMoved);
       socket.off('task-comment-added', handleTaskCommentAdded);
+      socket.off('project_deleted', handleProjectDeleted);
       
       // Leave project room
-      socket.emit('leave-project', projectId);
+      socket.emit('leave_project', projectId);
     };
   }, [socket, projectId, queryClient]);
 };

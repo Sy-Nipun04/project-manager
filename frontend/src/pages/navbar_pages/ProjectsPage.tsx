@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useProjects } from '../../hooks/useProject';
+import { useSocket } from '../../contexts/SocketContext';
 import toast from 'react-hot-toast';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
@@ -43,6 +44,7 @@ const ProjectsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { socket } = useSocket();
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -58,7 +60,7 @@ const ProjectsPage: React.FC = () => {
   const [showFriendsSuggestions, setShowFriendsSuggestions] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const { projects, isLoading: loading, error, invalidateProjects } = useProjects();
+  const { projects, isLoading: loading, error, invalidateProjects } = useProjects({ enablePolling: true });
 
   const createProjectMutation = useMutation({
     mutationFn: async (projectData: CreateProjectData) => {
@@ -97,6 +99,66 @@ const ProjectsPage: React.FC = () => {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  // Real-time project updates
+  useEffect(() => {
+    if (!socket || !currentUser) return;
+
+    console.log('📋 ProjectsPage: Setting up socket listeners for user:', currentUser.id);
+
+    const handleProjectCreated = (data: any) => {
+      console.log('📋 Project created event received:', data);
+      // Only refresh if the user is a member of the new project
+      if (data.project?.members?.some((member: any) => member.user._id === currentUser.id || member.user === currentUser.id)) {
+        invalidateProjects();
+        toast.success(`New project "${data.project.name}" was created!`);
+      }
+    };
+
+    const handleProjectUpdated = (data: any) => {
+      console.log('📋 Project updated event received:', data);
+      invalidateProjects();
+      
+      if (data.updateType === 'name') {
+        toast.success(`Project name changed to "${data.project?.name}"`);
+      }
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      invalidateProjects();
+      toast.error(`Project "${data.projectName}" has been deleted`);
+    };
+
+    // Socket handlers for member updates removed - now using React Query polling
+    // Project member counts will be updated through React Query refetch mechanisms
+
+    // Listen for project-related events
+    socket.on('project_created', handleProjectCreated);
+    socket.on('project_updated', handleProjectUpdated);
+    socket.on('project_deleted', handleProjectDeleted);
+    // Member update listeners removed - now using React Query polling
+    // Hybrid approach: Long polling + instant cache updates
+    socket.on('member_added', () => {
+      console.log('📋 Cache invalidation: member_added');
+      invalidateProjects();
+    });
+    socket.on('member_removed', () => {
+      console.log('📋 Cache invalidation: member_removed');
+      invalidateProjects();
+    });
+
+    return () => {
+      console.log('📋 ProjectsPage: Cleaning up socket listeners');
+      socket.off('project_created', handleProjectCreated);
+      socket.off('project_updated', handleProjectUpdated);
+      socket.off('project_deleted', handleProjectDeleted);
+      // Member update listeners removed - now using React Query polling
+      // Cache invalidation listeners cleanup
+      socket.off('member_added');
+      socket.off('member_removed');
+    };
+  }, [socket, currentUser, invalidateProjects]);
 
   const fetchFriends = async () => {
     try {

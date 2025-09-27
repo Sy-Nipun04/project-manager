@@ -2,6 +2,8 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
+import { getSocketInstance } from '../config/socketInstance.js';
+import { emitNotification } from '../config/socket.js';
 
 const router = express.Router();
 
@@ -205,13 +207,16 @@ router.post('/friend-request', [
     await targetUser.save();
 
     // Create notification
-    await Notification.create({
+    const notification = await Notification.create({
       user: userId,
       type: 'friend_request',
       title: 'New Friend Request',
       message: `${currentUser.fullName} sent you a friend request`,
       data: { user: req.user._id }
     });
+
+    // Emit notification for real-time updates
+    emitNotification(getSocketInstance(), userId, notification);
 
     res.json({ message: 'Friend request sent successfully' });
   } catch (error) {
@@ -263,13 +268,16 @@ router.put('/friend-request/:requestId', [
       await requester.save();
 
       // Create notification for requester
-      await Notification.create({
+      const notification = await Notification.create({
         user: friendRequest.user,
         type: 'friend_accepted',
         title: 'Friend Request Accepted',
         message: `${user.fullName} accepted your friend request`,
         data: { user: req.user._id }
       });
+
+      // Emit notification for real-time updates
+      emitNotification(getSocketInstance(), friendRequest.user, notification);
     }
 
     res.json({ 
@@ -286,6 +294,10 @@ router.delete('/friends/:friendId', async (req, res) => {
   try {
     const { friendId } = req.params;
 
+    // Get friend info before removal
+    const friend = await User.findById(friendId).select('fullName');
+    const currentUser = await User.findById(req.user._id).select('fullName');
+
     // Remove from current user's friends list
     await User.findByIdAndUpdate(req.user._id, {
       $pull: { friends: friendId }
@@ -295,6 +307,9 @@ router.delete('/friends/:friendId', async (req, res) => {
     await User.findByIdAndUpdate(friendId, {
       $pull: { friends: req.user._id }
     });
+
+    // Friend socket disabled
+    // const io = getSocketInstance();
 
     res.json({ message: 'Friend removed successfully' });
   } catch (error) {

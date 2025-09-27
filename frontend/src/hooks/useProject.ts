@@ -8,7 +8,7 @@ import { api } from '../lib/api';
  * @param projectId - The ID of the project to fetch
  * @returns Query object with project data and utilities
  */
-export function useProject(projectId: string | undefined) {
+export function useProject(projectId: string | undefined, options?: { enablePolling?: boolean }) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -20,8 +20,11 @@ export function useProject(projectId: string | undefined) {
       return response.data.project;
     },
     enabled: !!projectId,
-    staleTime: 5 * 60 * 1000, // 5 minutes - project data doesn't change frequently
-    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache longer for better UX
+    staleTime: options?.enablePolling ? 8 * 60 * 1000 : 5 * 60 * 1000, // 8min for polling (cache for most of interval), 5min otherwise
+    gcTime: 15 * 60 * 1000, // 15 minutes - keep in cache longer for better UX
+    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (very efficient)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   /**
@@ -61,7 +64,7 @@ export function useProject(projectId: string | undefined) {
  * Hook for accessing projects list (used in sidebar and projects page)
  * Centralized to ensure consistency across components
  */
-export function useProjects() {
+export function useProjects(options?: { enablePolling?: boolean }) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
@@ -70,8 +73,11 @@ export function useProjects() {
       const response = await api.get('/projects');
       return response.data.projects;
     },
-    staleTime: 2 * 60 * 1000, // 2 minutes - projects list changes more frequently
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: options?.enablePolling ? 8 * 60 * 1000 : 2 * 60 * 1000, // 8min for polling (cache for most of interval), 2min otherwise
+    gcTime: 15 * 60 * 1000, // 15 minutes
+    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (very efficient)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   /**

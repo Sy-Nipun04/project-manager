@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
 import { InformationCircleIcon, UserIcon, PencilIcon, DocumentTextIcon, CheckIcon, XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { useSocket } from '../../contexts/SocketContext';
 import ReactMarkdown from 'react-markdown';
 import MDEditor from '@uiw/react-md-editor';
 import '@uiw/react-md-editor/markdown-editor.css';
@@ -18,6 +19,8 @@ const ProjectInfoPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
+  const navigate = useNavigate();
   
   // State for markdown editing
   const [isEditingDetails, setIsEditingDetails] = useState(false);
@@ -33,7 +36,7 @@ const ProjectInfoPage: React.FC = () => {
 
 
 
-  const { project, isLoading, invalidateProject } = useProject(projectId);
+  const { project, isLoading, invalidateProject } = useProject(projectId, { enablePolling: true });
 
   // Get permissions using fresh project data
   const { can, isMember, userRole } = usePermissions(project);
@@ -117,6 +120,44 @@ const ProjectInfoPage: React.FC = () => {
       });
     }
   }, [project]);
+
+  // Real-time project info updates
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+    console.log('📋 ProjectInfoPage: Setting up socket listeners for project:', projectId);
+
+    // Project info update handler removed - now using React Query polling
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        navigate('/projects');
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Listen for access control events only
+    // Hybrid approach: Long polling + instant cache updates for info changes
+    socket.on('project_updated', (data) => {
+      if (data.type !== 'archive' && data.type !== 'delete') {
+        console.log('📄 Cache invalidation: project info updated');
+        invalidateProject();
+      }
+    });
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      console.log('📋 ProjectInfoPage: Cleaning up socket listeners');
+      socket.off('project_updated'); // Info updates removed
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, invalidateProject]);
 
   // Handlers for markdown editing
   const handleEditDetails = () => {

@@ -12,6 +12,7 @@ import noteRoutes from './routes/notes.js';
 import notificationRoutes from './routes/notifications.js';
 import { authenticateToken } from './middleware/auth.js';
 import { setupSocketHandlers } from './config/socket.js';
+import { setSocketInstance } from './config/socketInstance.js';
 import { startNotificationCleanup } from './utils/notificationCleanup.js';
 import { startActivityCleanup } from './utils/activityCleanup.js';
 
@@ -95,6 +96,7 @@ const connectToDatabase = async () => {
 connectToDatabase();
 
 // Socket.io setup
+setSocketInstance(io);
 setupSocketHandlers(io);
 
 // Routes

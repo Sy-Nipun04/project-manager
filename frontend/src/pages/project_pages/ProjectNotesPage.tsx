@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSocket } from '../../contexts/SocketContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { 
@@ -68,7 +69,9 @@ const ProjectNotesPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const { user: currentUser } = useAuth();
+  const { socket } = useSocket();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState<'all' | 'bookmarks' | 'activity'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -144,6 +147,64 @@ const ProjectNotesPage: React.FC = () => {
       setSelectedProject(project);
     }
   }, [project, selectedProject, setSelectedProject]);
+
+  // Real-time socket listeners for notes
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+    console.log('🔗 Setting up note socket listeners for project:', projectId);
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Handle note events
+    const handleNoteCreated = (data: any) => {
+      console.log('📝 Received note-created event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleNoteUpdated = (data: any) => {
+      console.log('✏️ Received note-updated event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleNoteDeleted = (data: any) => {
+      console.log('🗑️ Received note-deleted event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        navigate('/projects');
+      }
+    };
+
+    // Register event listeners
+    socket.on('note-created', handleNoteCreated);
+    socket.on('note-updated', handleNoteUpdated);
+    socket.on('note-deleted', handleNoteDeleted);
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      // Clean up listeners
+      socket.off('note-created', handleNoteCreated);
+      socket.off('note-updated', handleNoteUpdated);
+      socket.off('note-deleted', handleNoteDeleted);
+      socket.off('project_deleted', handleProjectDeleted);
+      
+      // Leave project room
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, queryClient]);
 
   // Create note mutation
   const createNoteMutation = useMutation({

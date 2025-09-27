@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
 import { getReorderDestinationIndex } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/get-reorder-destination-index';
@@ -31,6 +31,7 @@ import {
 } from '../../hooks/useTask';
 import { useProject } from '../../hooks/useProject';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useSocket } from '../../contexts/SocketContext';
 import { CogIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -39,6 +40,8 @@ type ColumnType = 'todo' | 'doing' | 'done';
 const ProjectBoardPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
+  const navigate = useNavigate();
+  const { socket } = useSocket();
   
   // State for modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -74,6 +77,25 @@ const ProjectBoardPage: React.FC = () => {
 
   // Real-time updates
   useRealTimeTaskUpdates(projectId!);
+
+  // Handle project deletion for navigation
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received in ProjectBoardPage:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        toast.error('This project has been deleted');
+        navigate('/projects');
+      }
+    };
+
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      socket.off('project_deleted', handleProjectDeleted);
+    };
+  }, [socket, projectId, navigate]);
 
   // Auto-select the project in sidebar when viewing it
   useEffect(() => {

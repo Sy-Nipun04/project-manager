@@ -3,6 +3,8 @@ import Layout from '../../components/Layout';
 import api from '../../lib/api';
 import { useProjects, useSidebarProjects } from '../../hooks/useProject';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSocket } from '../../contexts/SocketContext';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   BellIcon, 
   UserPlusIcon, 
@@ -31,156 +33,142 @@ interface Notification {
 
 const NotificationsPage: React.FC = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
+  const queryClient = useQueryClient();
   const { invalidateProjects } = useProjects();
   const { invalidateSidebarProjects } = useSidebarProjects(user?.id);
   
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showLast7Days, setShowLast7Days] = useState(false);
-  const [pagination, setPagination] = useState({
-    total: 0,
-    unreadCount: 0,
-    last7DaysCount: 0
-  });
 
-  useEffect(() => {
-    fetchNotifications();
-  }, [showLast7Days]);
-
-  const fetchNotifications = async () => {
-    try {
-      setLoading(true);
+  // React Query for notifications with 10-minute polling
+  const {
+    data: notificationsData,
+    isLoading: loading,
+    error,
+    refetch
+  } = useQuery({
+    queryKey: ['notifications', user?.id, showLast7Days],
+    queryFn: async () => {
       const params = new URLSearchParams({
         limit: showLast7Days ? '0' : '10',
         last7Days: showLast7Days.toString()
       });
       
       const response = await api.get(`/notifications?${params}`);
-      const fetchedNotifications = response.data.notifications;
-      
-      // Mark all unread notifications as read when the page loads
-      const unreadNotifications = fetchedNotifications.filter((n: Notification) => !n.isRead);
-      if (unreadNotifications.length > 0) {
-        try {
-          // Mark all notifications as read
-          await api.put('/notifications/mark-all-read');
-          
-          // Update the local state to reflect the read status
-          const updatedNotifications = fetchedNotifications.map((n: Notification) => ({
-            ...n,
-            isRead: true
-          }));
-          setNotifications(updatedNotifications);
-        } catch (markReadError) {
-          console.error('Failed to mark notifications as read:', markReadError);
-          // Still show notifications even if marking as read fails
-          setNotifications(fetchedNotifications);
-        }
-      } else {
-        setNotifications(fetchedNotifications);
-      }
-      
-      setPagination(response.data.pagination);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch notifications');
-    } finally {
-      setLoading(false);
-    }
+      return response.data;
+    },
+    enabled: !!user?.id,
+    refetchInterval: 10 * 60 * 1000, // 10 minutes
+    staleTime: 8 * 60 * 1000, // 8 minutes
+    refetchIntervalInBackground: true
+  });
+
+  const notifications = notificationsData?.notifications || [];
+  const pagination = {
+    total: notificationsData?.pagination?.total || 0,
+    unreadCount: notificationsData?.pagination?.unreadCount || 0,
+    last7DaysCount: notificationsData?.pagination?.last7DaysCount || 0
   };
 
+  // Hybrid approach: Socket listeners for instant cache invalidation
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    console.log('🔔 NotificationsPage: Setting up socket listeners for instant updates');
+
+    const handleNotificationUpdate = () => {
+      console.log('🔔 Cache invalidation: notifications updated');
+      queryClient.invalidateQueries({ queryKey: ['notifications', user.id] });
+    };
+
+    // Listen for events that affect notifications (aligned with backend emissions)
+    socket.on('notification_received', handleNotificationUpdate);
+    socket.on('notifications_updated', handleNotificationUpdate);
+    socket.on('friend_request_received', handleNotificationUpdate);
+    socket.on('project_invitation_sent', handleNotificationUpdate);
+    socket.on('member_added', handleNotificationUpdate);
+    socket.on('role_changed', handleNotificationUpdate);
+    socket.on('project_info_updated', handleNotificationUpdate);
+
+    return () => {
+      console.log('🔔 NotificationsPage: Cleaning up socket listeners');
+      socket.off('notification_received', handleNotificationUpdate);
+      socket.off('notifications_updated', handleNotificationUpdate);
+      socket.off('friend_request_received', handleNotificationUpdate);
+      socket.off('project_invitation_sent', handleNotificationUpdate);
+      socket.off('member_added', handleNotificationUpdate);
+      socket.off('role_changed', handleNotificationUpdate);
+      socket.off('project_info_updated', handleNotificationUpdate);
+    };
+  }, [socket, user, queryClient]);
+
+  // Mark all notifications as read mutation
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      await api.put('/notifications/mark-all-read');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications', user?.id] });
+    }
+  });
+
+  // Auto-mark all as read when page loads with unread notifications
+  useEffect(() => {
+    if (notifications.length > 0 && pagination.unreadCount > 0) {
+      markAllReadMutation.mutate();
+    }
+  }, [notifications.length, pagination.unreadCount]);
 
 
 
 
 
 
-  const handleProjectInvitation = async (notificationId: string, action: 'accept' | 'decline') => {
-    try {
-      const notification = notifications.find(n => n._id === notificationId);
-      
-      console.log('Full notification object:', JSON.stringify(notification, null, 2));
-      
-      if (!notification) {
-        setError('Notification not found');
-        return;
-      }
-      
-      if (!notification.data) {
-        setError('Invalid notification - missing data object');
-        return;
-      }
-      
-      if (!notification.data.project) {
-        setError('Invalid notification data - missing project information');
-        return;
-      }
 
-      // Extract project ID - handle both string and object cases
-      const projectId = typeof notification.data.project === 'string' 
-        ? notification.data.project 
-        : notification.data.project?._id;
-        
-      const invitationId = notification.data.invitation;
-      
-      console.log('Extracted data:', { projectId, invitationId, action, dataObject: notification.data });
-      
-      if (!projectId) {
-        setError('Invalid notification data - could not extract project ID');
-        return;
-      }
-      
-      if (!invitationId || invitationId === projectId) {
-        setError(`Invalid notification data - missing or incorrect invitation ID (got: ${invitationId})`);
-        return;
-      }
-
-      console.log('Handling project invitation:', { projectId, invitationId, action });
-
+  // Project invitation response mutation
+  const invitationMutation = useMutation({
+    mutationFn: async ({ notificationId, projectId, invitationId, action }: {
+      notificationId: string;
+      projectId: string;
+      invitationId: string;
+      action: 'accept' | 'decline';
+    }) => {
       const response = await api.put(`/projects/${projectId}/invitation/${invitationId}`, { action });
-      console.log('Project invitation response:', response.data);
-      
-      // If the invitation was accepted, invalidate projects cache to update sidebar
-      if (action === 'accept') {
+      return { response: response.data, action };
+    },
+    onSuccess: (data, variables) => {
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['notifications', user?.id] });
+      if (data.action === 'accept') {
         invalidateProjects();
         invalidateSidebarProjects();
       }
-      
-      // Update the notification to show it's been processed
-      setNotifications(prev => prev.map(n => 
-        n._id === notificationId 
-          ? { 
-              ...n, 
-              isRead: true,
-              data: { ...n.data, actionTaken: action === 'accept' ? 'accepted' : 'declined' },
-              message: `You ${action === 'accept' ? 'accepted' : 'declined'} the invitation to join the project`
-            }
-          : n
-      ));
-      
-    } catch (err: any) {
-      console.error('Project invitation error:', err);
-      
-      // Check if the error is due to invalid invitation
-      if (err.response?.data?.message?.includes('no longer valid') || err.response?.data?.message?.includes('invalid')) {
-        // Mark this notification as invalid locally
-        setNotifications(prev => prev.map(n => 
-          n._id === notificationId 
-            ? { 
-                ...n, 
-                data: { 
-                  ...n.data, 
-                  isInvalid: true 
-                }
-              }
-            : n
-        ));
-        setError('This invitation is no longer valid.');
-      } else {
-        const errorMessage = err.response?.data?.message || err.message || `Failed to ${action} project invitation`;
-        setError(errorMessage);
-      }
+    },
+    onError: (error: any) => {
+      console.error('Error handling project invitation:', error);
     }
+  });
+
+  const handleProjectInvitation = async (notificationId: string, action: 'accept' | 'decline') => {
+    const notification = notifications.find((n: any) => n._id === notificationId);
+    
+    if (!notification?.data?.project || !notification?.data?.invitation) {
+      console.error('Invalid notification data');
+      return;
+    }
+
+    const projectId = typeof notification.data.project === 'string' 
+      ? notification.data.project 
+      : notification.data.project?._id;
+      
+    const invitationId = notification.data.invitation;
+
+    if (!projectId || !invitationId) {
+      console.error('Missing project ID or invitation ID');
+      return;
+    }
+
+    invitationMutation.mutate({ notificationId, projectId, invitationId, action });
   };
 
   const getNotificationIcon = (type: string) => {
@@ -254,13 +242,7 @@ const NotificationsPage: React.FC = () => {
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-600">{error}</p>
-            <button 
-              onClick={() => setError(null)}
-              className="text-red-600 hover:text-red-800 text-sm underline mt-1"
-            >
-              Dismiss
-            </button>
+            <p className="text-red-600">Failed to load notifications. Please refresh the page.</p>
           </div>
         )}
 
@@ -305,7 +287,7 @@ const NotificationsPage: React.FC = () => {
             </div>
           ) : (
             <div className="divide-y divide-gray-200">
-              {notifications.map((notification) => (
+              {notifications.map((notification: any) => (
                 <div
                   key={notification._id}
                   className={`p-6 hover:bg-gray-50 transition-colors ${

@@ -22,6 +22,11 @@ const Dashboard: React.FC = () => {
       return response.data.projects;
     },
     enabled: !!user,
+    // Long polling with socket-based cache updates for efficiency
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (very efficient)
+    staleTime: 8 * 60 * 1000, // 8 minutes (cache for most of interval)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   const { data: dashboardTasks, isLoading: tasksLoading } = useQuery({
@@ -31,6 +36,11 @@ const Dashboard: React.FC = () => {
       return response.data.tasks;
     },
     enabled: !!user,
+    // Long polling with socket-based cache updates for efficiency
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (very efficient)
+    staleTime: 8 * 60 * 1000, // 8 minutes (cache for most of interval)
+    refetchIntervalInBackground: true, // Poll in background for live updates
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   const { data: friends, isLoading: friendsLoading } = useQuery({
@@ -40,6 +50,10 @@ const Dashboard: React.FC = () => {
       return response.data.friends;
     },
     enabled: !!user,
+    // Long polling configuration for hybrid approach
+    refetchInterval: 10 * 60 * 1000, // 10 minutes
+    staleTime: 8 * 60 * 1000, // 8 minutes 
+    refetchIntervalInBackground: true
   });
 
   const getCurrentTasks = () => {
@@ -65,22 +79,68 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!socket || !user) return;
 
+    console.log('🏠 Dashboard: Setting up socket listeners for user:', user.id);
+
     const handleTaskUpdate = () => {
       // Invalidate dashboard tasks to refetch updated data
       queryClient.invalidateQueries({ queryKey: ['dashboard-tasks', user.id] });
     };
 
-    // Listen for any task-related events
+    const handleProjectUpdate = (data: any) => {
+      console.log('🏠 Dashboard: Project updated event received:', data);
+      // Invalidate projects to update stats and project data
+      queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+      
+      // Show appropriate message for project updates
+      if (data.updateType === 'archived') {
+        console.log(`📦 Project "${data.project?.name}" has been archived`);
+      }
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🏠 Dashboard: Project deleted event received:', data);
+      // Invalidate projects to update the list
+      queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+      console.log(`🗑️ Project "${data.projectName}" has been deleted`);
+    };
+
+    const handleProjectCreated = (data: any) => {
+      console.log('🏠 Dashboard: Project created event received:', data);
+      // Invalidate projects to show new project
+      queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+    };
+
+    // Listen for task-related events
     socket.on('task-created', handleTaskUpdate);
     socket.on('task-updated', handleTaskUpdate);
     socket.on('task-deleted', handleTaskUpdate);
     socket.on('task-moved', handleTaskUpdate);
 
+    // Listen for project-related events
+    socket.on('project_created', handleProjectCreated);
+    socket.on('project_updated', handleProjectUpdate);
+    socket.on('project_deleted', handleProjectDeleted);
+    // Re-enabled for instant cache updates (hybrid approach with long polling)
+    socket.on('member_added', () => {
+      queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+    });
+    socket.on('member_removed', () => {
+      queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+    });
+
     return () => {
+      console.log('🏠 Dashboard: Cleaning up socket listeners');
       socket.off('task-created', handleTaskUpdate);
       socket.off('task-updated', handleTaskUpdate);
       socket.off('task-deleted', handleTaskUpdate);
       socket.off('task-moved', handleTaskUpdate);
+      
+      socket.off('project_created', handleProjectCreated);
+      socket.off('project_updated', handleProjectUpdate);
+      socket.off('project_deleted', handleProjectDeleted);
+      // Cache invalidation listeners for hybrid approach
+      socket.off('member_added');
+      socket.off('member_removed');
     };
   }, [socket, user, queryClient]);
 

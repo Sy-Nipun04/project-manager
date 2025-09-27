@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProject, useProjects } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
+import { useSocket } from '../../contexts/SocketContext';
 import { 
   CogIcon,
   UserIcon,
@@ -35,6 +36,7 @@ const ProjectSettingsPage: React.FC = () => {
   const { user } = useAuth(); // Using for authentication context
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
   const [activeTab, setActiveTab] = useState('general');
   
   // State for modals and forms
@@ -53,8 +55,8 @@ const ProjectSettingsPage: React.FC = () => {
   const [showRemoveMemberModal, setShowRemoveMemberModal] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<{ id: string; name: string; isCurrentUser: boolean } | null>(null);
 
-  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
-  const { invalidateProjects } = useProjects();
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId, { enablePolling: true });
+  const { invalidateProjects } = useProjects({ enablePolling: true });
 
   // Get permissions using fresh project data
   const { isMember, userRole } = usePermissions(project);
@@ -422,6 +424,82 @@ const ProjectSettingsPage: React.FC = () => {
 
     fetchFriends();
   }, []);
+
+  // Real-time project settings updates
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+    console.log('⚙️ ProjectSettingsPage: Setting up socket listeners for project:', projectId);
+
+    // Hybrid approach: React Query polling + instant socket cache invalidation
+    const handleProjectInfoUpdate = () => {
+      console.log('⚙️ Cache invalidation: project info updated');
+      invalidateProject();
+    };
+
+    const handleProjectUpdated = (data: any) => {
+      console.log('📋 Project updated event received:', data);
+      if (data.project._id === projectId || data.project === projectId) {
+        invalidateProject();
+        invalidateProjects();
+        
+        if (data.updateType === 'archived') {
+          // Only show toast if another user archived the project (not the current user)
+          if (data.archivedBy?.id !== user?.id) {
+            toast.error(`This project has been archived by ${data.archivedBy?.name || 'another user'}`);
+          }
+          navigate('/projects');
+        } else if (data.updateType === 'deleted') {
+          toast.error('This project has been deleted');
+          navigate('/projects');
+        } else {
+          toast.success('Project settings were updated');
+        }
+      }
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        invalidateProjects();
+        toast.error('This project has been deleted');
+        navigate('/projects');
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Listen for all project-related events with hybrid approach
+    // Hybrid: React Query 10-min polling + instant socket cache invalidation
+    socket.on('project_info_updated', handleProjectInfoUpdate);
+    socket.on('member_added', () => {
+      console.log('⚙️ Cache invalidation: member_added');
+      invalidateProject();
+    });
+    socket.on('member_removed', () => {
+      console.log('⚙️ Cache invalidation: member_removed');
+      invalidateProject();
+    });
+    socket.on('role_changed', () => {
+      console.log('⚙️ Cache invalidation: role_changed');
+      invalidateProject();
+    });
+    socket.on('project_updated', handleProjectUpdated);
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      console.log('⚙️ ProjectSettingsPage: Cleaning up socket listeners');
+      socket.off('project_info_updated', handleProjectInfoUpdate);
+      socket.off('member_added');
+      socket.off('member_removed');
+      socket.off('role_changed');
+      socket.off('project_updated', handleProjectUpdated);
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, invalidateProject, invalidateProjects, user?.id, navigate]);
 
   if (isLoading) {
     return (
