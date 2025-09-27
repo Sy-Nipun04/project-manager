@@ -13,6 +13,8 @@ const notificationSchema = new mongoose.Schema({
       'task_assigned',
       'task_created',
       'task_moved',
+      'high_priority_task_created',
+      'high_priority_task_updated',
       'note_created',
       'note_tagged',
       'member_added',

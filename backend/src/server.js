@@ -34,10 +34,65 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/project-manager')
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('MongoDB connection error:', err));
+// Database connection with enhanced error handling
+mongoose.set('strictQuery', true);
+
+const connectToDatabase = async () => {
+  try {
+    const options = {
+      serverSelectionTimeoutMS: 30000, // Timeout after 30s
+      socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+      retryWrites: true,
+      w: 'majority',
+      maxPoolSize: 10, // Maintain up to 10 socket connections
+      minPoolSize: 1, // Maintain minimum of 1 socket connection
+    };
+
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/project-manager', options);
+    console.log('✅ Connected to MongoDB successfully');
+
+    // Connection event listeners
+    mongoose.connection.on('error', (error) => {
+      console.error('❌ MongoDB connection error:', error);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.log('⚠️  MongoDB disconnected. Attempting to reconnect...');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      console.log('✅ MongoDB reconnected successfully');
+    });
+
+    // Handle process termination gracefully
+    process.on('SIGINT', async () => {
+      console.log('Received SIGINT. Closing MongoDB connection...');
+      await mongoose.connection.close();
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', async () => {
+      console.log('Received SIGTERM. Closing MongoDB connection...');
+      await mongoose.connection.close();
+      process.exit(0);
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to connect to MongoDB:', error.message);
+    
+    // If it's a network error, retry after 5 seconds
+    if (error.name === 'MongoNetworkError' || error.name === 'MongoServerSelectionError') {
+      console.log('🔄 Retrying MongoDB connection in 5 seconds...');
+      setTimeout(connectToDatabase, 5000);
+    } else {
+      console.error('💥 Critical MongoDB error. Exiting...');
+      process.exit(1);
+    }
+  }
+};
+
+// Initialize database connection
+connectToDatabase();
 
 // Socket.io setup
 setupSocketHandlers(io);

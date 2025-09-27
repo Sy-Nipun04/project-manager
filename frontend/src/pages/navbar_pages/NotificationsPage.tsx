@@ -14,13 +14,14 @@ import {
 
 interface Notification {
   _id: string;
-  type: 'friend_accepted' | 'project_invitation' | 'invitation_accepted' | 'invitation_declined' | 'member_added' | 'role_changed' | 'member_removed' | 'task_assigned' | 'note_created';
+  type: 'friend_accepted' | 'project_invitation' | 'invitation_accepted' | 'invitation_declined' | 'member_added' | 'role_changed' | 'member_removed' | 'task_assigned' | 'note_created' | 'high_priority_task_created' | 'high_priority_task_updated';
   title: string;
   message: string;
   data?: {
     project?: string | { _id: string; name: string };
     user?: string;
     invitation?: string;
+    task?: string;
     actionTaken?: 'accepted' | 'declined';
     isInvalid?: boolean;
   };
@@ -195,6 +196,11 @@ const NotificationsPage: React.FC = () => {
         return <XMarkIcon className="h-6 w-6 text-red-600" />;
       case 'role_changed':
         return <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" />;
+      case 'high_priority_task_created':
+      case 'high_priority_task_updated':
+        return <ExclamationTriangleIcon className="h-6 w-6 text-orange-600" />;
+      case 'task_assigned':
+        return <BellIcon className="h-6 w-6 text-blue-600" />;
       default:
         return <BellIcon className="h-6 w-6 text-gray-600" />;
     }

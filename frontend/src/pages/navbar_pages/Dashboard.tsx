@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import Layout from '../../components/Layout';
-import { useQuery } from '@tanstack/react-query';
+import { DashboardTaskCard } from '../../components/dashboard/DashboardTaskCard';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { useSocket } from '../../contexts/SocketContext';
 import { FolderOpen, CheckCircle, Clock, Users, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +32,8 @@ interface Project {
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
+  const queryClient = useQueryClient();
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects', user?.id],
@@ -97,6 +101,29 @@ const Dashboard: React.FC = () => {
   const stats = getStats();
   const firstTodoTasks = getFirstTodoTasks();
   const recentlyDoneTasks = getRecentlyDoneTasks();
+
+  // Real-time updates for dashboard
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    const handleTaskUpdate = () => {
+      // Invalidate dashboard tasks to refetch updated data
+      queryClient.invalidateQueries({ queryKey: ['dashboard-tasks', user.id] });
+    };
+
+    // Listen for any task-related events
+    socket.on('task-created', handleTaskUpdate);
+    socket.on('task-updated', handleTaskUpdate);
+    socket.on('task-deleted', handleTaskUpdate);
+    socket.on('task-moved', handleTaskUpdate);
+
+    return () => {
+      socket.off('task-created', handleTaskUpdate);
+      socket.off('task-updated', handleTaskUpdate);
+      socket.off('task-deleted', handleTaskUpdate);
+      socket.off('task-moved', handleTaskUpdate);
+    };
+  }, [socket, user, queryClient]);
 
   if (projectsLoading || tasksLoading || friendsLoading) {
     return (
@@ -177,37 +204,13 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="p-6">
               {firstTodoTasks.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {firstTodoTasks.map((task: any) => (
-                    <div key={task._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <h3 className="font-medium text-gray-900">{task.title}</h3>
-                        <p className="text-sm text-gray-600">
-                          From <span className="font-medium">{task.project?.name}</span>
-                        </p>
-                        {task.dueDate && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Due: {new Date(task.dueDate).toLocaleDateString('en-GB')}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          task.priority === 'urgent' ? 'bg-red-100 text-red-800' :
-                          task.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                          task.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
-                          {task.priority}
-                        </span>
-                        <Link
-                          to={`/project/${task.project?._id}`}
-                          className="text-teal-600 hover:text-teal-700 text-sm font-medium"
-                        >
-                          View Project
-                        </Link>
-                      </div>
-                    </div>
+                    <DashboardTaskCard
+                      key={task._id}
+                      task={task}
+                      showProject={true}
+                    />
                   ))}
                 </div>
               ) : (
@@ -227,22 +230,13 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="p-6">
               {recentlyDoneTasks.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {recentlyDoneTasks.map((task: any) => (
-                    <div key={task._id} className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
-                      <div className="flex-1">
-                        <h3 className="font-medium text-gray-900 line-through">{task.title}</h3>
-                        <p className="text-sm text-gray-600">
-                          From <span className="font-medium">{task.project?.name}</span>
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Completed: {new Date(task.updatedAt).toLocaleDateString('en-GB')}
-                        </p>
-                      </div>
-                      <div className="flex items-center">
-                        <CheckCircle className="h-5 w-5 text-green-600" />
-                      </div>
-                    </div>
+                    <DashboardTaskCard
+                      key={task._id}
+                      task={task}
+                      showProject={true}
+                    />
                   ))}
                 </div>
               ) : (

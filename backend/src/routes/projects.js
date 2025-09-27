@@ -1328,4 +1328,67 @@ router.get('/:projectId/tasks', checkProjectAccess('viewer'), async (req, res) =
   }
 });
 
+// Get project board settings
+router.get('/:projectId/board-settings', checkProjectAccess('viewer'), async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.projectId).select('settings');
+    
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    res.json({ 
+      settings: {
+        doingLimit: project.settings.doingColumnLimit || 5
+      }
+    });
+  } catch (error) {
+    console.error('Get board settings error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update project board settings (admin only)
+router.put('/:projectId/board-settings', checkProjectAdmin, [
+  body('doingLimit')
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Doing column limit must be between 1 and 50')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const { doingLimit } = req.body;
+
+    const project = await Project.findByIdAndUpdate(
+      req.params.projectId,
+      {
+        $set: {
+          'settings.doingColumnLimit': doingLimit
+        }
+      },
+      { new: true }
+    ).select('settings');
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    res.json({ 
+      message: 'Board settings updated successfully',
+      settings: {
+        doingLimit: project.settings.doingColumnLimit
+      }
+    });
+  } catch (error) {
+    console.error('Update board settings error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 export default router;
