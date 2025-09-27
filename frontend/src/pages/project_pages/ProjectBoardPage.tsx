@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { getReorderDestinationIndex } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/get-reorder-destination-index';
+import { reorder } from '@atlaskit/pragmatic-drag-and-drop/reorder';
+import type { Edge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/types';
+import invariant from 'tiny-invariant';
 import Layout from '../../components/Layout';
 import { DroppableColumn } from '../../components/board/DroppableColumn';
 import { CreateTaskModal } from '../../components/board/CreateTaskModal';
@@ -16,6 +21,7 @@ import {
   useMoveTask, 
   useDeleteTask,
   useAddTaskComment,
+  useReorderTask,
   useBoardSettings,
   useUpdateBoardSettings,
   useRealTimeTaskUpdates,
@@ -43,6 +49,9 @@ const ProjectBoardPage: React.FC = () => {
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [showBoardSettingsModal, setShowBoardSettingsModal] = useState(false);
+  
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
 
   // Queries
   const { project, isLoading: isProjectLoading } = useProject(projectId);
@@ -53,6 +62,7 @@ const ProjectBoardPage: React.FC = () => {
   const createTaskMutation = useCreateTask(projectId!);
   const updateTaskMutation = useUpdateTask(projectId!);
   const moveTaskMutation = useMoveTask(projectId!);
+  const reorderTaskMutation = useReorderTask(projectId!);
   const deleteTaskMutation = useDeleteTask(projectId!);
   const addCommentMutation = useAddTaskComment(projectId!);
   const updateBoardSettingsMutation = useUpdateBoardSettings(projectId!);
@@ -72,44 +82,240 @@ const ProjectBoardPage: React.FC = () => {
     }
   }, [project, selectedProject, setSelectedProject]);
 
-  // Group tasks by column
-  const todoTasks = tasks.filter(task => task.column === 'todo');
-  const doingTasks = tasks.filter(task => task.column === 'doing');
-  const doneTasks = tasks.filter(task => task.column === 'done');
+  // State management similar to Board.jsx
+  const [boardData, setBoardData] = useState(() => {
+    const todoTasks = tasks.filter(task => task.column === 'todo').sort((a, b) => (a.position || 0) - (b.position || 0));
+    const doingTasks = tasks.filter(task => task.column === 'doing').sort((a, b) => (a.position || 0) - (b.position || 0));
+    const doneTasks = tasks.filter(task => task.column === 'done').sort((a, b) => (a.position || 0) - (b.position || 0));
+    
+    return {
+      columnMap: {
+        todo: { columnId: 'todo', title: 'To Do', items: todoTasks },
+        doing: { columnId: 'doing', title: 'Doing', items: doingTasks },
+        done: { columnId: 'done', title: 'Done', items: doneTasks }
+      },
+      orderedColumnIds: ['todo', 'doing', 'done']
+    };
+  });
 
-  // Drag and drop handling
+  // Update board data when tasks change
   useEffect(() => {
-    if (isViewer || !can.editTasks()) return; // Viewers can't drag
+    const todoTasks = tasks.filter(task => task.column === 'todo').sort((a, b) => (a.position || 0) - (b.position || 0));
+    const doingTasks = tasks.filter(task => task.column === 'doing').sort((a, b) => (a.position || 0) - (b.position || 0));
+    const doneTasks = tasks.filter(task => task.column === 'done').sort((a, b) => (a.position || 0) - (b.position || 0));
+    
+    setBoardData({
+      columnMap: {
+        todo: { columnId: 'todo', title: 'To Do', items: todoTasks },
+        doing: { columnId: 'doing', title: 'Doing', items: doingTasks },
+        done: { columnId: 'done', title: 'Done', items: doneTasks }
+      },
+      orderedColumnIds: ['todo', 'doing', 'done']
+    });
+  }, [tasks]);
+
+  // Group tasks by column (for statistics and limits)
+  const todoTasks = boardData.columnMap.todo.items;
+  const doingTasks = boardData.columnMap.doing.items;
+  const doneTasks = boardData.columnMap.done.items;
+
+  // Reorder and move functions
+  const reorderCard = useCallback(({
+    columnId,
+    startIndex,
+    finishIndex,
+  }: {
+    columnId: string;
+    startIndex: number;
+    finishIndex: number;
+  }) => {
+    setBoardData((prevData) => {
+      const sourceColumn = prevData.columnMap[columnId as keyof typeof prevData.columnMap];
+      const updatedItems = reorder({
+        list: sourceColumn.items,
+        startIndex,
+        finishIndex,
+      });
+
+      return {
+        ...prevData,
+        columnMap: {
+          ...prevData.columnMap,
+          [columnId]: {
+            ...sourceColumn,
+            items: updatedItems,
+          },
+        },
+      };
+    });
+
+    // Call backend API
+    const task = boardData.columnMap[columnId as keyof typeof boardData.columnMap].items[startIndex];
+    if (task) {
+      reorderTaskMutation.mutate({
+        taskId: task._id,
+        startIndex,
+        finishIndex,
+        column: columnId as ColumnType,
+      });
+    }
+  }, [boardData.columnMap, reorderTaskMutation]);
+
+  const moveCard = useCallback(({
+    startColumnId,
+    finishColumnId,
+    itemIndexInStartColumn,
+    itemIndexInFinishColumn,
+  }: {
+    startColumnId: string;
+    finishColumnId: string;
+    itemIndexInStartColumn: number;
+    itemIndexInFinishColumn?: number;
+  }) => {
+    // Check doing column limit
+    if (finishColumnId === 'doing' && boardSettings?.doingLimit) {
+      const destinationColumn = boardData.columnMap[finishColumnId as keyof typeof boardData.columnMap];
+      if (destinationColumn.items.length >= boardSettings.doingLimit) {
+        toast.error(`Cannot move task. Doing column limit is ${boardSettings.doingLimit} tasks.`);
+        return;
+      }
+    }
+
+    setBoardData((prevData) => {
+      const sourceColumn = prevData.columnMap[startColumnId as keyof typeof prevData.columnMap];
+      const destinationColumn = prevData.columnMap[finishColumnId as keyof typeof prevData.columnMap];
+      const item = sourceColumn.items[itemIndexInStartColumn];
+
+      const destinationItems = Array.from(destinationColumn.items);
+      const newIndexInDestination = itemIndexInFinishColumn ?? destinationColumn.items.length;
+      destinationItems.splice(newIndexInDestination, 0, { ...item, column: finishColumnId as ColumnType });
+
+      return {
+        ...prevData,
+        columnMap: {
+          ...prevData.columnMap,
+          [startColumnId]: {
+            ...sourceColumn,
+            items: sourceColumn.items.filter((_, index) => index !== itemIndexInStartColumn),
+          },
+          [finishColumnId]: {
+            ...destinationColumn,
+            items: destinationItems,
+          },
+        },
+      };
+    });
+
+    // Call backend API
+    const task = boardData.columnMap[startColumnId as keyof typeof boardData.columnMap].items[itemIndexInStartColumn];
+    if (task) {
+      moveTaskMutation.mutate({
+        taskId: task._id,
+        column: finishColumnId as ColumnType,
+        position: itemIndexInFinishColumn,
+      });
+    }
+  }, [boardData.columnMap, boardSettings?.doingLimit, moveTaskMutation]);
+
+  // Drag and drop handling exactly like Board.jsx
+  useEffect(() => {
+    if (isViewer || !can.editTasks()) return;
 
     return monitorForElements({
+      canMonitor({ source }) {
+        return source.data.type === 'task';
+      },
+      onDragStart() {
+        setIsDragging(true);
+      },
       onDrop({ source, location }) {
-        const destination = location.current.dropTargets[0];
-        if (!destination) return;
-
-        const taskId = source.data.taskId as string;
-        const sourceColumnId = source.data.sourceColumnId as string;
-        const destColumnId = destination.data.columnId as string;
-
-        // Don't do anything if dropped in same column
-        if (sourceColumnId === destColumnId) return;
-
-        // Check doing column limit
-        if (destColumnId === 'doing' && boardSettings?.doingLimit) {
-          const currentDoingCount = doingTasks.length;
-          if (currentDoingCount >= boardSettings.doingLimit) {
-            toast.error(`Cannot move task. Doing column limit is ${boardSettings.doingLimit} tasks.`);
-            return;
-          }
+        setIsDragging(false);
+        
+        if (!location.current.dropTargets.length) {
+          return;
         }
 
-        // Perform the move
-        moveTaskMutation.mutate({
-          taskId,
-          column: destColumnId as ColumnType,
-        });
+        const taskId = source.data.taskId;
+        invariant(typeof taskId === 'string');
+        
+        const sourceColumnId = source.data.sourceColumnId;
+        invariant(typeof sourceColumnId === 'string');
+
+        const sourceColumn = boardData.columnMap[sourceColumnId as keyof typeof boardData.columnMap];
+        const itemIndex = sourceColumn.items.findIndex(item => item._id === taskId);
+
+        if (location.current.dropTargets.length === 1) {
+          const [destinationColumnRecord] = location.current.dropTargets;
+          const destinationColumnId = destinationColumnRecord.data.columnId;
+          invariant(typeof destinationColumnId === 'string');
+          const destinationColumn = boardData.columnMap[destinationColumnId as keyof typeof boardData.columnMap];
+
+          // Same column reordering to end
+          if (sourceColumn === destinationColumn) {
+            const destinationIndex = getReorderDestinationIndex({
+              startIndex: itemIndex,
+              indexOfTarget: sourceColumn.items.length - 1,
+              closestEdgeOfTarget: null,
+              axis: 'vertical',
+            });
+            reorderCard({
+              columnId: sourceColumnId,
+              startIndex: itemIndex,
+              finishIndex: destinationIndex,
+            });
+            return;
+          }
+
+          // Moving to new column (to end of column)
+          moveCard({
+            itemIndexInStartColumn: itemIndex,
+            startColumnId: sourceColumnId,
+            finishColumnId: destinationColumnId,
+            itemIndexInFinishColumn: destinationColumn.items.length,
+          });
+          return;
+        }
+
+        // Dropped on task (2 targets)
+        if (location.current.dropTargets.length === 2) {
+          const [destinationTaskRecord, destinationColumnRecord] = location.current.dropTargets;
+          const destinationColumnId = destinationColumnRecord.data.columnId;
+          invariant(typeof destinationColumnId === 'string');
+          const destinationColumn = boardData.columnMap[destinationColumnId as keyof typeof boardData.columnMap];
+
+          const indexOfTarget = destinationColumn.items.findIndex(
+            item => item._id === destinationTaskRecord.data.taskId,
+          );
+          const closestEdgeOfTarget: Edge | null = extractClosestEdge(destinationTaskRecord.data);
+
+          // Same column reordering
+          if (sourceColumn === destinationColumn) {
+            const destinationIndex = getReorderDestinationIndex({
+              startIndex: itemIndex,
+              indexOfTarget,
+              closestEdgeOfTarget,
+              axis: 'vertical',
+            });
+            reorderCard({
+              columnId: sourceColumnId,
+              startIndex: itemIndex,
+              finishIndex: destinationIndex,
+            });
+            return;
+          }
+
+          // Cross-column move with positioning
+          const destinationIndex = closestEdgeOfTarget === 'bottom' ? indexOfTarget + 1 : indexOfTarget;
+          moveCard({
+            itemIndexInStartColumn: itemIndex,
+            startColumnId: sourceColumnId,
+            finishColumnId: destinationColumnId,
+            itemIndexInFinishColumn: destinationIndex,
+          });
+        }
       },
     });
-  }, [isViewer, can, doingTasks.length, boardSettings?.doingLimit, moveTaskMutation]);
+  }, [isViewer, can, boardData, reorderCard, moveCard]);
 
   // Modal handlers
   const handleCreateTask = (column: ColumnType) => {
@@ -287,34 +493,21 @@ const ProjectBoardPage: React.FC = () => {
         </div>
 
         {/* Board Columns */}
-        <div className="flex gap-6 overflow-x-auto pb-4">
-          <DroppableColumn
-            columnId="doing"
-            title="Doing"
-            tasks={doingTasks}
-            onTaskClick={handleTaskClick}
-            onCreateTask={handleCreateTask}
-            isDisabled={!can.createTasks()}
-            doingLimit={boardSettings?.doingLimit}
-          />
-          
-          <DroppableColumn
-            columnId="done"
-            title="Done"
-            tasks={doneTasks}
-            onTaskClick={handleTaskClick}
-            onCreateTask={handleCreateTask}
-            isDisabled={!can.createTasks()}
-          />
-          
-          <DroppableColumn
-            columnId="todo"
-            title="To Do"
-            tasks={todoTasks}
-            onTaskClick={handleTaskClick}
-            onCreateTask={handleCreateTask}
-            isDisabled={!can.createTasks()}
-          />
+        <div className={`flex gap-6 overflow-x-auto pb-4 transition-all duration-200 ${
+          isDragging ? 'bg-gray-50 rounded-lg p-2' : ''
+        }`}>
+          {boardData.orderedColumnIds.map((columnId) => (
+            <DroppableColumn
+              key={columnId}
+              columnId={columnId as ColumnType}
+              title={boardData.columnMap[columnId as keyof typeof boardData.columnMap].title}
+              tasks={boardData.columnMap[columnId as keyof typeof boardData.columnMap].items}
+              onTaskClick={handleTaskClick}
+              onCreateTask={handleCreateTask}
+              isDisabled={!can.createTasks()}
+              doingLimit={columnId === 'doing' ? boardSettings?.doingLimit : undefined}
+            />
+          ))}
         </div>
 
         {/* Task Statistics */}

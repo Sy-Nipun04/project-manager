@@ -47,30 +47,32 @@ export const DashboardTaskCard: React.FC<DashboardTaskCardProps> = ({
     }
   };
 
-  const getColumnText = (column: string) => {
-    switch (column) {
-      case 'todo':
-        return 'To Do';
-      case 'doing':
-        return 'In Progress';
-      case 'done':
-        return 'Completed';
-      default:
-        return 'Unknown';
-    }
-  };
+
 
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
 
   return (
     <div className={`p-4 rounded-lg border-l-4 transition-all duration-200 hover:shadow-sm ${getColumnColor(task.column)}`}>
       <div className="flex items-start justify-between mb-2">
-        <h3 className={`font-medium text-gray-900 ${task.column === 'done' ? 'line-through' : ''}`}>
-          {task.title}
-        </h3>
-        {task.column === 'done' && (
-          <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0" />
-        )}
+        <div className="flex-1 min-w-0">
+          <h3 className={`font-medium text-gray-900 ${task.column === 'done' ? 'line-through' : ''}`}>
+            {task.title}
+          </h3>
+        </div>
+        <div className="flex items-center space-x-2 flex-shrink-0 ml-3">
+          {task.column === 'done' && (
+            <CheckCircleIcon className="h-5 w-5 text-green-600" />
+          )}
+          {/* View Board Button */}
+          {task.project && (
+            <Link
+              to={`/project/${task.project._id}/board`}
+              className="inline-flex items-center px-2 py-1 text-xs font-medium text-teal-600 bg-teal-50 rounded-md hover:bg-teal-100 hover:text-teal-700 transition-colors"
+            >
+              View Board
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Project name */}
@@ -110,11 +112,6 @@ export const DashboardTaskCard: React.FC<DashboardTaskCardProps> = ({
       {/* Task meta info */}
       <div className="flex items-center justify-between text-xs text-gray-500">
         <div className="flex items-center space-x-3">
-          {/* Status badge */}
-          <span className="px-2 py-1 bg-white rounded-full text-gray-700 font-medium">
-            {getColumnText(task.column)}
-          </span>
-
           {/* Priority badge */}
           {task.priority === 'high' && (
             <span className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium border ${getPriorityColor(task.priority)}`}>
@@ -132,31 +129,19 @@ export const DashboardTaskCard: React.FC<DashboardTaskCardProps> = ({
           )}
         </div>
 
-        <div className="flex items-center space-x-3">
-          {/* Due date */}
-          {task.dueDate && (
-            <div className={`flex items-center space-x-1 ${isOverdue ? 'text-red-600' : ''}`}>
-              {isOverdue ? (
-                <ClockIcon className="h-3 w-3 text-red-600" />
-              ) : (
-                <CalendarIcon className="h-3 w-3" />
-              )}
-              <span className={isOverdue ? 'font-medium' : ''}>
-                {task.column === 'done' ? 'Completed' : format(new Date(task.dueDate), 'MMM d')}
-              </span>
-            </div>
-          )}
-
-          {/* Project link */}
-          {task.project && (
-            <Link
-              to={`/project/${task.project._id}/board`}
-              className="text-teal-600 hover:text-teal-700 font-medium"
-            >
-              View Board
-            </Link>
-          )}
-        </div>
+        {/* Due date */}
+        {task.dueDate && (
+          <div className={`flex items-center space-x-1 ${isOverdue ? 'text-red-600' : ''}`}>
+            {isOverdue ? (
+              <ClockIcon className="h-3 w-3 text-red-600" />
+            ) : (
+              <CalendarIcon className="h-3 w-3" />
+            )}
+            <span className={isOverdue ? 'font-medium' : ''}>
+              {task.column === 'done' ? 'Completed' : format(new Date(task.dueDate), 'MMM d')}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

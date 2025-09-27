@@ -11,6 +11,7 @@ export interface Task {
   project: string;
   column: 'todo' | 'doing' | 'done';
   priority: 'low' | 'medium' | 'high';
+  position?: number;
   assignedTo: Array<{
     _id: string;
     fullName: string;
@@ -170,6 +171,30 @@ export const useMoveTask = (projectId: string) => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Failed to move task');
+    },
+  });
+};
+
+// Hook to reorder tasks within the same column
+export const useReorderTask = (projectId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (reorderData: { taskId: string; startIndex: number; finishIndex: number; column: 'todo' | 'doing' | 'done' }): Promise<Task> => {
+      const response = await api.put(`/tasks/${reorderData.taskId}/reorder`, {
+        startIndex: reorderData.startIndex,
+        finishIndex: reorderData.finishIndex,
+        column: reorderData.column,
+      });
+      return response.data.task;
+    },
+    onSuccess: () => {
+      // Invalidate tasks to refetch the new order
+      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to reorder task');
     },
   });
 };

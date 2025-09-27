@@ -1,6 +1,9 @@
 import React from 'react';
-import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { useRef, useEffect, useState } from 'react';
+import { attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import type { Edge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/types';
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import type { Task } from '../../hooks/useTask';
 import { 
   CalendarIcon, 
@@ -25,19 +28,56 @@ export const DraggableTask: React.FC<DraggableTaskProps> = ({
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [closestEdge, setClosestEdge] = useState<Edge | null>(null);
 
   useEffect(() => {
     if (ref.current && !isDisabled) {
-      return draggable({
-        element: ref.current,
-        getInitialData: () => ({
-          taskId: task._id,
-          sourceColumnId: columnId,
-          index,
+      return combine(
+        draggable({
+          element: ref.current,
+          getInitialData: () => ({
+            type: 'task',
+            taskId: task._id,
+            sourceColumnId: columnId,
+            index,
+          }),
+          onDragStart: () => setIsDragging(true),
+          onDrop: () => setIsDragging(false),
         }),
-        onDragStart: () => setIsDragging(true),
-        onDrop: () => setIsDragging(false),
-      });
+        dropTargetForElements({
+          element: ref.current,
+          canDrop: ({ source }) => {
+            // Can only drop other tasks
+            return source.data.type === 'task' && source.data.taskId !== task._id;
+          },
+          getData: ({ input, element }) => {
+            const data = {
+              type: 'task',
+              taskId: task._id,
+              columnId: columnId,
+              index: index,
+            };
+            
+            return attachClosestEdge(data, {
+              input,
+              element,
+              allowedEdges: ['top', 'bottom'],
+            });
+          },
+          onDragEnter: (args) => {
+            setClosestEdge(extractClosestEdge(args.self.data));
+          },
+          onDrag: (args) => {
+            setClosestEdge(extractClosestEdge(args.self.data));
+          },
+          onDragLeave: () => {
+            setClosestEdge(null);
+          },
+          onDrop: () => {
+            setClosestEdge(null);
+          },
+        })
+      );
     }
   }, [task._id, columnId, index, isDisabled]);
 
@@ -57,16 +97,26 @@ export const DraggableTask: React.FC<DraggableTaskProps> = ({
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
 
   return (
-    <div
-      ref={ref}
-      onClick={() => onTaskClick(task)}
-      className={`
-        bg-white border border-gray-200 rounded-lg p-3 mb-3 shadow-sm 
-        hover:shadow-md transition-all duration-200 cursor-pointer
-        ${isDragging ? 'opacity-50 rotate-2 scale-105' : ''}
-        ${isDisabled ? 'cursor-not-allowed opacity-75' : 'hover:border-gray-300'}
-      `}
-    >
+    <div className="relative">
+      {/* Drop indicator line */}
+      {closestEdge === 'top' && (
+        <div className="absolute -top-1 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
+      )}
+      {closestEdge === 'bottom' && (
+        <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
+      )}
+      
+      <div
+        ref={ref}
+        onClick={() => onTaskClick(task)}
+        className={`
+          bg-white border border-gray-200 rounded-lg p-3 mb-3 shadow-sm 
+          hover:shadow-md transition-all duration-200 cursor-pointer relative
+          ${isDragging ? 'opacity-50 rotate-2 scale-105' : ''}
+          ${isDisabled ? 'cursor-not-allowed opacity-75' : 'hover:border-gray-300'}
+          ${closestEdge ? 'ring-2 ring-blue-200' : ''}
+        `}
+      >
       {/* Task Title */}
       <h3 className="font-medium text-gray-900 mb-3 line-clamp-2">
         {task.title}
@@ -118,13 +168,14 @@ export const DraggableTask: React.FC<DraggableTaskProps> = ({
         </div>
       )}
 
-      {/* Creation/Update Date */}
-      <div className="text-xs text-gray-400 border-t border-gray-100 pt-2">
-        {task.updatedAt && task.updatedAt !== task.createdAt ? (
-          <span>Updated {format(new Date(task.updatedAt), 'MMM d, yyyy')}</span>
-        ) : (
-          <span>Created {format(new Date(task.createdAt), 'MMM d, yyyy')}</span>
-        )}
+        {/* Creation/Update Date */}
+        <div className="text-xs text-gray-400 border-t border-gray-100 pt-2">
+          {task.updatedAt && task.updatedAt !== task.createdAt ? (
+            <span>Updated {format(new Date(task.updatedAt), 'MMM d, yyyy')}</span>
+          ) : (
+            <span>Created {format(new Date(task.createdAt), 'MMM d, yyyy')}</span>
+          )}
+        </div>
       </div>
     </div>
   );

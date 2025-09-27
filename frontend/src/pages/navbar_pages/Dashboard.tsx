@@ -4,29 +4,9 @@ import { DashboardTaskCard } from '../../components/dashboard/DashboardTaskCard'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { useSocket } from '../../contexts/SocketContext';
-import { FolderOpen, CheckCircle, Clock, Users, TrendingUp } from 'lucide-react';
+import { FolderOpen, Clock, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-
-interface Project {
-  _id: string;
-  name: string;
-  description?: string;
-  creator: {
-    _id: string;
-    fullName: string;
-    username: string;
-  };
-  members: Array<{
-    user: {
-      _id: string;
-      fullName: string;
-      username: string;
-    };
-    role: string;
-  }>;
-  updatedAt: string;
-}
 
 
 
@@ -44,11 +24,11 @@ const Dashboard: React.FC = () => {
     enabled: !!user,
   });
 
-  const { data: tasks, isLoading: tasksLoading } = useQuery({
+  const { data: dashboardTasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['dashboard-tasks', user?.id],
     queryFn: async () => {
       const response = await api.get('/tasks/dashboard');
-      return response.data;
+      return response.data.tasks;
     },
     enabled: !!user,
   });
@@ -62,45 +42,24 @@ const Dashboard: React.FC = () => {
     enabled: !!user,
   });
 
-  const getFirstTodoTasks = () => {
-    if (!tasks?.tasksByProject) return [];
-    
-    return Object.entries(tasks.tasksByProject).map(([projectId, projectTasks]: [string, any]) => {
-      const firstTodoTask = projectTasks.todo?.[0];
-      if (firstTodoTask) {
-        return {
-          ...firstTodoTask,
-          project: projects?.find((p: Project) => p._id === projectId)
-        };
-      }
-      return null;
-    }).filter(Boolean);
-  };
-
-  const getRecentlyDoneTasks = () => {
-    if (!tasks?.recentlyDone) return [];
-    return tasks.recentlyDone.slice(0, 5);
+  const getCurrentTasks = () => {
+    if (!dashboardTasks) return [];
+    return dashboardTasks.map((task: any) => ({
+      ...task,
+      project: { _id: task.project, name: task.projectName }
+    }));
   };
 
   const getStats = () => {
     const totalProjects = projects?.length || 0;
-    
-    if (!tasks) return { totalProjects, totalTasks: 0, completedTasks: 0, totalFriends: friends?.length || 0 };
-    
-    const totalTasks = Object.values(tasks.tasksByProject || {}).reduce((acc: number, projectTasks: any) => {
-      return acc + (projectTasks.todo?.length || 0) + (projectTasks.doing?.length || 0) + (projectTasks.done?.length || 0);
-    }, 0);
-    const completedTasks = Object.values(tasks.tasksByProject || {}).reduce((acc: number, projectTasks: any) => {
-      return acc + (projectTasks.done?.length || 0);
-    }, 0);
+    const currentTasks = dashboardTasks?.length || 0;
     const totalFriends = friends?.length || 0;
 
-    return { totalProjects, totalTasks, completedTasks, totalFriends };
+    return { totalProjects, currentTasks, totalFriends };
   };
 
   const stats = getStats();
-  const firstTodoTasks = getFirstTodoTasks();
-  const recentlyDoneTasks = getRecentlyDoneTasks();
+  const currentTasks = getCurrentTasks();
 
   // Real-time updates for dashboard
   useEffect(() => {
@@ -161,23 +120,11 @@ const Dashboard: React.FC = () => {
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <div className="p-2 bg-blue-100 rounded-lg">
-                <CheckCircle className="h-6 w-6 text-blue-600" />
+                <Clock className="h-6 w-6 text-blue-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Tasks</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalTasks}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <TrendingUp className="h-6 w-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedTasks}</p>
+                <p className="text-sm font-medium text-gray-600">Current Tasks</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.currentTasks}</p>
               </div>
             </div>
           </div>
@@ -195,78 +142,70 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* First Tasks from Projects */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Tasks</h2>
-              <p className="text-sm text-gray-600">The first task from each of your projects</p>
-            </div>
-            <div className="p-6">
-              {firstTodoTasks.length > 0 ? (
-                <div className="space-y-3">
-                  {firstTodoTasks.map((task: any) => (
-                    <DashboardTaskCard
-                      key={task._id}
-                      task={task}
-                      showProject={true}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">No tasks found</p>
-                </div>
-              )}
+        {/* Main Content - Two Panel Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Panel - Current Tasks */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900">Current Tasks</h2>
+                <p className="text-sm text-gray-600">First doing task from your 5 most recently updated projects</p>
+              </div>
+              <div className="p-6">
+                {currentTasks.length > 0 ? (
+                  <div className="space-y-4">
+                    {currentTasks.map((task: any) => (
+                      <DashboardTaskCard
+                        key={task._id}
+                        task={task}
+                        showProject={true}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500">No current tasks found</p>
+                    <p className="text-xs text-gray-400 mt-1">Tasks in the "Doing" column will appear here</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Recently Done Tasks */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Recently Completed</h2>
-              <p className="text-sm text-gray-600">Last 5 completed tasks</p>
+          {/* Right Panel - Additional Content */}
+          <div className="lg:col-span-1">
+            {/* Quick Actions */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+              <div className="space-y-3">
+                <Link
+                  to="/projects"
+                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+                >
+                  <FolderOpen className="h-4 w-4 mr-2" />
+                  View All Projects
+                </Link>
+                <Link
+                  to="/projects/create"
+                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-teal-600 text-teal-600 rounded-lg hover:bg-teal-50 transition-colors"
+                >
+                  <FolderOpen className="h-4 w-4 mr-2" />
+                  Create New Project
+                </Link>
+              </div>
             </div>
-            <div className="p-6">
-              {recentlyDoneTasks.length > 0 ? (
-                <div className="space-y-3">
-                  {recentlyDoneTasks.map((task: any) => (
-                    <DashboardTaskCard
-                      key={task._id}
-                      task={task}
-                      showProject={true}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">No completed tasks yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
 
-        {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-          <div className="flex flex-wrap gap-4">
-            <Link
-              to="/projects"
-              className="inline-flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-            >
-              <FolderOpen className="h-4 w-4 mr-2" />
-              View All Projects
-            </Link>
-            <Link
-              to="/projects/create"
-              className="inline-flex items-center px-4 py-2 border border-teal-600 text-teal-600 rounded-lg hover:bg-teal-50 transition-colors"
-            >
-              <FolderOpen className="h-4 w-4 mr-2" />
-              Create New Project
-            </Link>
+            {/* Additional Panel - Reserved for future content */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Additional Panel</h2>
+              <div className="text-center py-8">
+                <div className="w-12 h-12 bg-gray-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
+                  <FolderOpen className="h-6 w-6 text-gray-400" />
+                </div>
+                <p className="text-sm text-gray-500">Reserved for future content</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -7,29 +7,33 @@ import { checkProjectAccess, checkProjectEditor, checkProjectAdmin, checkTaskEdi
 
 const router = express.Router();
 
-// Get dashboard tasks (first task from each project)
+// Get dashboard tasks (first doing task from 5 most recently updated projects)
 router.get('/dashboard', async (req, res) => {
   try {
-    // Get all projects where user is a member
+    // Get 5 most recently updated projects where user is a member
     const projects = await Project.find({
       'members.user': req.user._id
-    }).select('_id name');
+    })
+    .select('_id name updatedAt')
+    .sort({ updatedAt: -1 })
+    .limit(5);
 
     const dashboardTasks = [];
 
-    // Get the first task from each project
+    // Get the first doing task from each of these projects
     for (const project of projects) {
-      const firstTask = await Task.findOne({
+      const firstDoingTask = await Task.findOne({
         project: project._id,
+        column: 'doing',
         isArchived: false
       })
       .populate('assignedTo', 'fullName username email profileImage')
       .populate('createdBy', 'fullName username email profileImage')
-      .sort({ createdAt: 1 });
+      .sort({ position: 1, createdAt: 1 });
 
-      if (firstTask) {
+      if (firstDoingTask) {
         dashboardTasks.push({
-          ...firstTask.toObject(),
+          ...firstDoingTask.toObject(),
           projectName: project.name
         });
       }
@@ -51,13 +55,13 @@ router.get('/project/:projectId', checkProjectAccess('viewer'), async (req, res)
     })
     .populate('assignedTo', 'fullName username email profileImage')
     .populate('createdBy', 'fullName username email profileImage')
-    .sort({ createdAt: -1 });
+    .sort({ position: 1, createdAt: 1 });
 
-    // Group tasks by column
+    // Group tasks by column and maintain position order
     const tasksByColumn = {
-      todo: tasks.filter(task => task.column === 'todo'),
-      doing: tasks.filter(task => task.column === 'doing'),
-      done: tasks.filter(task => task.column === 'done')
+      todo: tasks.filter(task => task.column === 'todo').sort((a, b) => a.position - b.position),
+      doing: tasks.filter(task => task.column === 'doing').sort((a, b) => a.position - b.position),
+      done: tasks.filter(task => task.column === 'done').sort((a, b) => a.position - b.position)
     };
 
     res.json({ tasks: tasksByColumn });
@@ -123,12 +127,22 @@ router.post('/project/:projectId', checkProjectEditor, [
       }
     }
 
+    // Get the highest position in the target column to append new task at the end
+    const maxPositionTask = await Task.findOne({
+      project: req.params.projectId,
+      column: column,
+      isArchived: false
+    }).sort({ position: -1 });
+
+    const newPosition = maxPositionTask ? maxPositionTask.position + 1 : 0;
+
     // Create task
     const task = new Task({
       title,
       description,
       project: req.params.projectId,
       column,
+      position: newPosition,
       priority,
       assignedTo,
       createdBy: req.user._id,
@@ -222,7 +236,7 @@ router.put('/:taskId/move', checkTaskEditor, [
     // Task and project are already available from middleware
     const task = req.task;
     const project = req.project;
-    const { column, position } = req.body;
+    const { column, position = 0 } = req.body;
 
     const oldColumn = task.column;
 
@@ -242,10 +256,43 @@ router.put('/:taskId/move', checkTaskEditor, [
       }
     }
 
-    // Update task column
+    // Handle position updates for reordering
+    if (position !== undefined) {
+      // Get all tasks in the target column
+      const tasksInColumn = await Task.find({
+        project: task.project,
+        column: column,
+        isArchived: false,
+        _id: { $ne: task._id }
+      }).sort({ position: 1 });
+
+      // Update positions of tasks that need to be shifted
+      const bulkOps = [];
+      
+      // Shift tasks down to make room at the new position
+      tasksInColumn.forEach((t, index) => {
+        if (index >= position) {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: t._id },
+              update: { position: index + 1 }
+            }
+          });
+        }
+      });
+
+      if (bulkOps.length > 0) {
+        await Task.bulkWrite(bulkOps);
+      }
+    }
+
+    // Update task column and position
     const updatedTask = await Task.findByIdAndUpdate(
       req.params.taskId,
-      { column },
+      { 
+        column,
+        position: position !== undefined ? position : 0
+      },
       { new: true, runValidators: true }
     )
     .populate('assignedTo', 'fullName username email profileImage')
@@ -259,6 +306,67 @@ router.put('/:taskId/move', checkTaskEditor, [
     });
   } catch (error) {
     console.error('Move task error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Reorder tasks within the same column
+router.put('/:taskId/reorder', checkTaskEditor, [
+  body('startIndex')
+    .isInt({ min: 0 })
+    .withMessage('Start index must be a non-negative integer'),
+  body('finishIndex')
+    .isInt({ min: 0 })
+    .withMessage('Finish index must be a non-negative integer'),
+  body('column')
+    .isIn(['todo', 'doing', 'done'])
+    .withMessage('Column must be todo, doing, or done')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const { startIndex, finishIndex, column } = req.body;
+    const task = req.task;
+
+    // Get all tasks in the column ordered by position
+    const tasksInColumn = await Task.find({
+      project: task.project,
+      column: column,
+      isArchived: false
+    }).sort({ position: 1 });
+
+    // Create a copy of the array and perform reorder
+    const reorderedTasks = [...tasksInColumn];
+    const [movedTask] = reorderedTasks.splice(startIndex, 1);
+    reorderedTasks.splice(finishIndex, 0, movedTask);
+
+    // Update positions for all affected tasks
+    const bulkOps = reorderedTasks.map((t, index) => ({
+      updateOne: {
+        filter: { _id: t._id },
+        update: { position: index }
+      }
+    }));
+
+    await Task.bulkWrite(bulkOps);
+
+    // Get updated task with populated fields
+    const updatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'fullName username email profileImage')
+      .populate('createdBy', 'fullName username email profileImage');
+
+    res.json({
+      message: 'Task reordered successfully',
+      task: updatedTask
+    });
+  } catch (error) {
+    console.error('Reorder task error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

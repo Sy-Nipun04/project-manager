@@ -33,10 +33,16 @@ export const DroppableColumn: React.FC<DroppableColumnProps> = ({
     if (ref.current) {
       return dropTargetForElements({
         element: ref.current,
+        canDrop: ({ source }) => {
+          return source.data.type === 'task';
+        },
+        getData: () => ({ 
+          type: 'column',
+          columnId,
+        }),
         onDragEnter: () => setIsDropTarget(true),
         onDragLeave: () => setIsDropTarget(false),
         onDrop: () => setIsDropTarget(false),
-        getData: () => ({ columnId }),
       });
     }
   }, [columnId]);
@@ -111,16 +117,23 @@ export const DroppableColumn: React.FC<DroppableColumnProps> = ({
       </div>
 
       {/* Tasks Container */}
-      <div ref={ref} className="p-4 space-y-2 min-h-[400px]">
-        {tasks.map((task, index) => (
-          <DraggableTask
-            key={task._id}
-            task={task}
-            index={index}
-            columnId={columnId}
-            onTaskClick={onTaskClick}
-            isDisabled={isDisabled}
-          />
+      <div ref={ref} className="p-4 space-y-1 min-h-[400px]">
+        {tasks
+          .sort((a, b) => (a.position || 0) - (b.position || 0)) // Sort by position
+          .map((task, index) => (
+          <div key={task._id} className="relative">
+            {/* Task Number */}
+            <div className="absolute -left-3 top-3 z-10 w-5 h-5 bg-gray-200 text-gray-600 text-xs rounded-full flex items-center justify-center font-medium">
+              {index + 1}
+            </div>
+            <DraggableTask
+              task={task}
+              index={index}
+              columnId={columnId}
+              onTaskClick={onTaskClick}
+              isDisabled={isDisabled}
+            />
+          </div>
         ))}
         
         {/* Empty State */}
