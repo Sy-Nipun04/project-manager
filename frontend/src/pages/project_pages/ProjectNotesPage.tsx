@@ -20,7 +20,8 @@ import {
   UserGroupIcon,
   BellIcon,
   InformationCircleIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkSolidIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
@@ -77,7 +78,9 @@ const ProjectNotesPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
   const [showImportantConfirm, setShowImportantConfirm] = useState(false);
   const [pendingNoteData, setPendingNoteData] = useState<any>(null);
   
@@ -108,7 +111,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes`);
       return response.data.notes;
     },
-    enabled: !!projectId
+    enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch tasks for referencing
@@ -118,7 +124,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/tasks`);
       return response.data.tasks;
     },
-    enabled: !!projectId
+    enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch bookmarked notes
@@ -128,7 +137,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes/bookmarks`);
       return response.data.notes;
     },
-    enabled: !!projectId && activeTab === 'bookmarks'
+    enabled: !!projectId && activeTab === 'bookmarks',
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch recent activity
@@ -138,7 +150,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes/activity`);
       return response.data.activities;
     },
-    enabled: !!projectId && activeTab === 'activity'
+    enabled: !!projectId && activeTab === 'activity',
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Auto-select the project in sidebar
@@ -446,9 +461,21 @@ const ProjectNotesPage: React.FC = () => {
   };
 
   const handleDeleteNote = (note: Note) => {
-    if (window.confirm('Are you sure you want to delete this note?')) {
-      deleteNoteMutation.mutate(note._id);
+    setNoteToDelete(note);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteNote = () => {
+    if (noteToDelete) {
+      deleteNoteMutation.mutate(noteToDelete._id);
+      setShowDeleteModal(false);
+      setNoteToDelete(null);
     }
+  };
+
+  const cancelDeleteNote = () => {
+    setShowDeleteModal(false);
+    setNoteToDelete(null);
   };
 
   const toggleBookmark = (note: Note) => {
@@ -1081,6 +1108,47 @@ const ProjectNotesPage: React.FC = () => {
                   className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Note Confirmation Modal */}
+        {showDeleteModal && noteToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Delete Note</h3>
+                <button 
+                  onClick={cancelDeleteNote}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600">
+                  Are you sure you want to delete "<strong>{noteToDelete.title}</strong>"? 
+                  This action cannot be undone.
+                </p>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={cancelDeleteNote}
+                  disabled={deleteNoteMutation.isPending}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteNote}
+                  disabled={deleteNoteMutation.isPending}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteNoteMutation.isPending ? 'Deleting...' : 'Delete Note'}
                 </button>
               </div>
             </div>

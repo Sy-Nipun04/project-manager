@@ -79,6 +79,9 @@ export const useTasks = (projectId: string) => {
       ];
     },
     enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 };
 
@@ -90,6 +93,9 @@ export const useAllProjectTasks = () => {
       const response = await api.get('/tasks/dashboard');
       return response.data;
     },
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 };
 
@@ -102,6 +108,9 @@ export const useTask = (taskId: string) => {
       return response.data.task;
     },
     enabled: !!taskId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 };
 
@@ -247,6 +256,9 @@ export const useBoardSettings = (projectId: string) => {
       return response.data.settings;
     },
     enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 };
 

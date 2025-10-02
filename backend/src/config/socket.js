@@ -213,3 +213,28 @@ export const emitNotification = (io, userId, notification) => {
 export const emitToProject = (io, projectId, event, data) => {
   io.to(`project_${projectId}`).emit(event, data);
 };
+
+// Helper function to emit to all project members (both in room and individual user rooms)
+export const emitToProjectMembers = async (io, projectId, event, data) => {
+  try {
+    // First emit to project room (for users actively viewing the project)
+    io.to(`project_${projectId}`).emit(event, data);
+    
+    // Then get all project members and emit to their personal rooms
+    // This ensures users on dashboard/other pages also receive updates
+    const Project = (await import('../models/Project.js')).default;
+    const project = await Project.findById(projectId).populate('members.user', '_id');
+    
+    if (project && project.members) {
+      project.members.forEach(member => {
+        const userId = member.user._id.toString();
+        // Emit to each member's personal room
+        io.to(`user_${userId}`).emit(event, data);
+      });
+    }
+  } catch (error) {
+    console.error('Error emitting to project members:', error);
+    // Fallback to just project room
+    io.to(`project_${projectId}`).emit(event, data);
+  }
+};

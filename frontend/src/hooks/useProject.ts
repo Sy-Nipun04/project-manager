@@ -20,11 +20,12 @@ export function useProject(projectId: string | undefined, options?: { enablePoll
       return response.data.project;
     },
     enabled: !!projectId,
-    staleTime: options?.enablePolling ? 8 * 60 * 1000 : 5 * 60 * 1000, // 8min for polling (cache for most of interval), 5min otherwise
+    staleTime: 30 * 1000, // 30 seconds - use global setting for consistency
     gcTime: 15 * 60 * 1000, // 15 minutes - keep in cache longer for better UX
-    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (very efficient)
+    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (efficient fallback)
     refetchIntervalInBackground: false, // Don't poll when tab is not active
     refetchOnWindowFocus: true, // Refetch when window gains focus
+    refetchOnMount: 'always', // Always get fresh data when component mounts
   });
 
   /**
@@ -73,11 +74,12 @@ export function useProjects(options?: { enablePolling?: boolean }) {
       const response = await api.get('/projects');
       return response.data.projects;
     },
-    staleTime: options?.enablePolling ? 8 * 60 * 1000 : 2 * 60 * 1000, // 8min for polling (cache for most of interval), 2min otherwise
+    staleTime: 30 * 1000, // 30 seconds - use global setting for consistency
     gcTime: 15 * 60 * 1000, // 15 minutes
-    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (very efficient)
+    refetchInterval: options?.enablePolling ? 10 * 60 * 1000 : false, // Poll every 10 minutes (efficient fallback)
     refetchIntervalInBackground: false, // Don't poll when tab is not active
     refetchOnWindowFocus: true, // Refetch when window gains focus
+    refetchOnMount: 'always', // Always get fresh data when component mounts
   });
 
   /**

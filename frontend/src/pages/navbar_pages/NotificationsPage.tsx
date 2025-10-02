@@ -3,7 +3,6 @@ import Layout from '../../components/Layout';
 import api from '../../lib/api';
 import { useProjects, useSidebarProjects } from '../../hooks/useProject';
 import { useAuth } from '../../contexts/AuthContext';
-import { useSocket } from '../../contexts/SocketContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   BellIcon, 
@@ -33,7 +32,6 @@ interface Notification {
 
 const NotificationsPage: React.FC = () => {
   const { user } = useAuth();
-  const { socket } = useSocket();
   const queryClient = useQueryClient();
   const { invalidateProjects } = useProjects();
   const { invalidateSidebarProjects } = useSidebarProjects(user?.id);
@@ -58,8 +56,10 @@ const NotificationsPage: React.FC = () => {
       return response.data;
     },
     enabled: !!user?.id,
-    refetchInterval: 10 * 60 * 1000, // 10 minutes
-    staleTime: 8 * 60 * 1000, // 8 minutes
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (efficient fallback since we have socket updates)
+    staleTime: 30 * 1000, // 30 seconds (use global setting)
+    refetchOnMount: 'always', // Always fetch fresh data when page loads
+    refetchOnWindowFocus: true, // Refetch when user comes back to tab
     refetchIntervalInBackground: true
   });
 
@@ -70,37 +70,8 @@ const NotificationsPage: React.FC = () => {
     last7DaysCount: notificationsData?.pagination?.last7DaysCount || 0
   };
 
-  // Hybrid approach: Socket listeners for instant cache invalidation
-  useEffect(() => {
-    if (!socket || !user) return;
-
-    console.log('🔔 NotificationsPage: Setting up socket listeners for instant updates');
-
-    const handleNotificationUpdate = () => {
-      console.log('🔔 Cache invalidation: notifications updated');
-      queryClient.invalidateQueries({ queryKey: ['notifications', user.id] });
-    };
-
-    // Listen for events that affect notifications (aligned with backend emissions)
-    socket.on('notification_received', handleNotificationUpdate);
-    socket.on('notifications_updated', handleNotificationUpdate);
-    socket.on('friend_request_received', handleNotificationUpdate);
-    socket.on('project_invitation_sent', handleNotificationUpdate);
-    socket.on('member_added', handleNotificationUpdate);
-    socket.on('role_changed', handleNotificationUpdate);
-    socket.on('project_info_updated', handleNotificationUpdate);
-
-    return () => {
-      console.log('🔔 NotificationsPage: Cleaning up socket listeners');
-      socket.off('notification_received', handleNotificationUpdate);
-      socket.off('notifications_updated', handleNotificationUpdate);
-      socket.off('friend_request_received', handleNotificationUpdate);
-      socket.off('project_invitation_sent', handleNotificationUpdate);
-      socket.off('member_added', handleNotificationUpdate);
-      socket.off('role_changed', handleNotificationUpdate);
-      socket.off('project_info_updated', handleNotificationUpdate);
-    };
-  }, [socket, user, queryClient]);
+  // Note: Socket listeners for notifications are now handled globally in SocketContext
+  // This ensures real-time updates work regardless of which page the user is on
 
   // Mark all notifications as read mutation
   const markAllReadMutation = useMutation({

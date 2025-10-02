@@ -27,7 +27,10 @@ import './index.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 30 * 1000, // 30 seconds - much shorter to ensure fresher data  
+      gcTime: 5 * 60 * 1000, // Keep in memory for 5 minutes
+      refetchOnWindowFocus: true, // Refetch when user comes back to tab
+      refetchOnMount: true, // Always refetch when component mounts
       retry: 1,
     },
   },
@@ -37,10 +40,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <SocketProvider>
-          <SidebarProvider>
-            <Router>
-            <div className="min-h-screen bg-gray-50">
+        <Router>
+          <SocketProvider>
+            <SidebarProvider>
+              <div className="min-h-screen bg-gray-50">
               <Routes>
                 {/* Public routes */}
                 <Route path="/" element={<LandingPage />} />
@@ -139,10 +142,10 @@ function App() {
                   },
                 }}
               />
-            </div>
-          </Router>
-        </SidebarProvider>
-        </SocketProvider>
+              </div>
+            </SidebarProvider>
+          </SocketProvider>
+        </Router>
       </AuthProvider>
     </QueryClientProvider>
   );
