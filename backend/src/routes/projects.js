@@ -7,7 +7,7 @@ import Note from '../models/Note.js';
 import Task from '../models/Task.js';
 import Bookmark from '../models/Bookmark.js';
 import Activity from '../models/Activity.js';
-import { checkProjectAccess, checkProjectAdmin, checkProjectEditor } from '../middleware/auth.js';
+import { checkProjectAccess, checkProjectAdmin, checkProjectEditor, checkProjectAdminForArchive } from '../middleware/auth.js';
 import { getSocketInstance } from '../config/socketInstance.js';
 import { emitToProject, emitNotification } from '../config/socket.js';
 
@@ -700,21 +700,41 @@ router.delete('/:projectId/members/:memberId', checkProjectAccess('viewer'), asy
       });
     }
 
-    // Remove member
-    req.project.members.pull(memberId);
-    await req.project.save();
-
-    // Emit socket event for instant cache invalidation (hybrid approach)
+    // Emit socket event BEFORE removing member so kicked member receives it
     const io = getSocketInstance();
     if (io) {
       console.log('📡 Emitting member_removed for project:', req.project._id);
-      emitToProject(io, req.project._id, 'member_removed', {
-        projectId: req.project._id,
-        memberId,
-        removedBy: req.user._id,
-        isCurrentUser
+      
+      // Get all member IDs (including the one being removed)
+      const allMemberIds = req.project.members.map(m => m.user._id || m.user);
+      
+      // Emit to all members' personal rooms
+      allMemberIds.forEach(userId => {
+        io.to(`user_${userId}`).emit('member_removed', {
+          projectId: req.project._id,
+          memberId: member.user._id || member.user,
+          removedBy: {
+            id: req.user._id,
+            name: req.user.fullName,
+            username: req.user.username
+          },
+          member: {
+            id: member.user._id || member.user,
+            name: memberUser.fullName,
+            username: memberUser.username
+          },
+          project: {
+            id: req.project._id,
+            name: req.project.name
+          },
+          isCurrentUser
+        });
       });
     }
+
+    // Remove member AFTER emitting the event
+    req.project.members.pull(memberId);
+    await req.project.save();
 
     const successMessage = isRemovingSelf 
       ? `You have successfully left the project "${req.project.name}"`
@@ -763,12 +783,27 @@ router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
     
     await req.project.save();
 
-    // Emit project updated event to all members
+    // Emit project updated event to all members (dual emission for reliability)
     const io = getSocketInstance();
     const memberIds = req.project.members.map(member => member.user._id || member.user);
     
-    console.log('📦 Emitting project_updated (archived) event for project:', req.project._id);
+    console.log('📦 Emitting archive events to both project room and individual users');
+    
+    // Emit to project room (for users currently in the project)
+    io.to(`project_${req.project._id}`).emit('project_updated', {
+      project: req.project,
+      projectId: req.project._id,
+      updateType: 'archived',
+      archivedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+    
+    // Also emit to individual user rooms (for users who might not be in project room)
     memberIds.forEach(memberId => {
+      console.log(`📡 Emitting archive to user_${memberId}`);
       io.to(`user_${memberId}`).emit('project_updated', {
         project: req.project,
         projectId: req.project._id,
@@ -816,7 +851,7 @@ router.post('/:projectId/archive', checkProjectAdmin, async (req, res) => {
 });
 
 // Unarchive project
-router.post('/:projectId/unarchive', checkProjectAdmin, async (req, res) => {
+router.post('/:projectId/unarchive', checkProjectAdminForArchive(), async (req, res) => {
   try {
     const { notifyMembers = true } = req.body;
     
@@ -831,6 +866,39 @@ router.post('/:projectId/unarchive', checkProjectAdmin, async (req, res) => {
     req.project.settings.archivedBy = null;
     
     await req.project.save();
+
+    // Emit project updated event to all members (dual emission for reliability)
+    const io = getSocketInstance();
+    const memberIds = req.project.members.map(member => member.user._id || member.user);
+    
+    console.log('📦 Emitting unarchive events to both project room and individual users');
+    
+    // Emit to project room (for users currently in the project)
+    io.to(`project_${req.project._id}`).emit('project_updated', {
+      project: req.project,
+      projectId: req.project._id,
+      updateType: 'unarchived',
+      unarchivedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+    
+    // Also emit to individual user rooms (for users who might not be in project room)
+    memberIds.forEach(memberId => {
+      console.log(`📡 Emitting unarchive to user_${memberId}`);
+      io.to(`user_${memberId}`).emit('project_updated', {
+        project: req.project,
+        projectId: req.project._id,
+        updateType: 'unarchived',
+        unarchivedBy: {
+          id: req.user._id,
+          name: req.user.fullName,
+          username: req.user.username
+        }
+      });
+    });
 
     // Send notifications to all members if requested
     if (notifyMembers) {
@@ -938,12 +1006,27 @@ router.delete('/:projectId', checkProjectAdmin, [
       }
     }
 
-    // Emit project deletion event to all members before deletion
+    // Emit project deletion event to all members before deletion (dual emission for reliability)
     const io = getSocketInstance();
     const memberIds = req.project.members.map(member => member.user._id || member.user);
     
-    console.log('🗑️ Emitting project_deleted event for project:', req.project._id);
+    console.log('🗑️ Emitting project_deleted event for project:', req.project._id, 'at:', new Date().toISOString());
+    
+    // Emit to project room (for users currently in the project)
+    io.to(`project_${req.project._id}`).emit('project_deleted', {
+      project: req.project._id,
+      projectId: req.project._id,
+      projectName: req.project.name,
+      deletedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+    
+    // Also emit to individual user rooms (for users who might not be in project room)
     memberIds.forEach(memberId => {
+      console.log(`📡 Emitting deletion to user_${memberId}`);
       io.to(`user_${memberId}`).emit('project_deleted', {
         project: req.project._id,
         projectId: req.project._id,

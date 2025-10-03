@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
@@ -20,7 +20,6 @@ const ProjectInfoPage: React.FC = () => {
   const { selectedProject, setSelectedProject } = useSidebar();
   const queryClient = useQueryClient();
   const { socket } = useSocket();
-  const navigate = useNavigate();
   
   // State for markdown editing
   const [isEditingDetails, setIsEditingDetails] = useState(false);
@@ -134,7 +133,7 @@ const ProjectInfoPage: React.FC = () => {
       if (data.project === projectId || data.projectId === projectId) {
         queryClient.removeQueries({ queryKey: ['project', projectId] });
         toast.error('This project has been deleted');
-        navigate('/projects');
+        window.location.href = '/projects';
       }
     };
 
@@ -144,6 +143,13 @@ const ProjectInfoPage: React.FC = () => {
     // Listen for access control events only
     // Hybrid approach: Long polling + instant cache updates for info changes
     socket.on('project_updated', (data) => {
+      // Handle archive events
+      if (data.updateType === 'archived') {
+        console.log('📦 ProjectInfoPage: Project archived, redirecting with page refresh');
+        window.location.href = '/dashboard';
+        return;
+      }
+      
       if (data.type !== 'archive' && data.type !== 'delete') {
         console.log('📄 Cache invalidation: project info updated');
         invalidateProject();

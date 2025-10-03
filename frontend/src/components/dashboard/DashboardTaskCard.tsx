@@ -55,7 +55,7 @@ export const DashboardTaskCard: React.FC<DashboardTaskCardProps> = ({
     <div className={`p-4 rounded-lg border-l-4 transition-all duration-200 hover:shadow-sm ${getColumnColor(task.column)}`}>
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1 min-w-0">
-          <h3 className={`font-medium text-gray-900 ${task.column === 'done' ? 'line-through' : ''}`}>
+          <h3 className={`font-medium text-gray-900 break-words line-clamp-2 ${task.column === 'done' ? 'line-through' : ''}`}>
             {task.title}
           </h3>
         </div>
@@ -82,12 +82,7 @@ export const DashboardTaskCard: React.FC<DashboardTaskCardProps> = ({
         </p>
       )}
 
-      {/* Description */}
-      {task.description && (
-        <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-          {task.description}
-        </p>
-      )}
+      {/* Description removed from dashboard view for cleaner display */}
 
       {/* Tags */}
       {task.tags && task.tags.length > 0 && (

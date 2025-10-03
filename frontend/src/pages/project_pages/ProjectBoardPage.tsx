@@ -82,20 +82,33 @@ const ProjectBoardPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !projectId) return;
 
+    // Check if project is archived before joining room
+    if (project?.settings?.isArchived) {
+      console.log('⚠️ ProjectBoardPage: Project is archived, not joining room and redirecting with page refresh');
+      window.location.href = '/dashboard';
+      return;
+    }
+
+    // Join project room for real-time updates
+    console.log('🔌 ProjectBoardPage: Joining project room for project:', projectId);
+    socket.emit('join_project', projectId);
+
     const handleProjectDeleted = (data: any) => {
       console.log('🗑️ Project deleted event received in ProjectBoardPage:', data);
       if (data.project === projectId || data.projectId === projectId) {
         toast.error('This project has been deleted');
-        navigate('/projects');
+        window.location.href = '/projects';
       }
     };
 
     socket.on('project_deleted', handleProjectDeleted);
+    // Note: Archive events are handled globally by SocketContext
 
     return () => {
       socket.off('project_deleted', handleProjectDeleted);
+      // Note: Archive events cleanup handled globally by SocketContext
     };
-  }, [socket, projectId, navigate]);
+  }, [socket, projectId, navigate, project]);
 
   // Auto-select the project in sidebar when viewing it
   useEffect(() => {

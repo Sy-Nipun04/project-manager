@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
@@ -72,7 +72,7 @@ const ProjectNotesPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { socket } = useSocket();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+
   
   const [activeTab, setActiveTab] = useState<'all' | 'bookmarks' | 'activity'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,7 +199,15 @@ const ProjectNotesPage: React.FC = () => {
       if (data.project === projectId || data.projectId === projectId) {
         queryClient.removeQueries({ queryKey: ['project', projectId] });
         toast.error('This project has been deleted');
-        navigate('/projects');
+        window.location.href = '/projects';
+      }
+    };
+
+    // Handle archive events
+    const handleProjectUpdated = (data: any) => {
+      if (data.updateType === 'archived') {
+        console.log('📦 ProjectNotesPage: Project archived, redirecting with page refresh');
+        window.location.href = '/dashboard';
       }
     };
 
@@ -208,6 +216,7 @@ const ProjectNotesPage: React.FC = () => {
     socket.on('note-updated', handleNoteUpdated);
     socket.on('note-deleted', handleNoteDeleted);
     socket.on('project_deleted', handleProjectDeleted);
+    socket.on('project_updated', handleProjectUpdated);
 
     return () => {
       // Clean up listeners
@@ -215,6 +224,7 @@ const ProjectNotesPage: React.FC = () => {
       socket.off('note-updated', handleNoteUpdated);
       socket.off('note-deleted', handleNoteDeleted);
       socket.off('project_deleted', handleProjectDeleted);
+      socket.off('project_updated', handleProjectUpdated);
       
       // Leave project room
       socket.emit('leave_project', projectId);

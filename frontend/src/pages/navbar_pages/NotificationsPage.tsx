@@ -13,22 +13,7 @@ import {
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
-interface Notification {
-  _id: string;
-  type: 'friend_accepted' | 'project_invitation' | 'invitation_accepted' | 'invitation_declined' | 'member_added' | 'role_changed' | 'member_removed' | 'task_assigned' | 'note_created' | 'high_priority_task_created' | 'high_priority_task_updated';
-  title: string;
-  message: string;
-  data?: {
-    project?: string | { _id: string; name: string };
-    user?: string;
-    invitation?: string;
-    task?: string;
-    actionTaken?: 'accepted' | 'declined';
-    isInvalid?: boolean;
-  };
-  isRead: boolean;
-  createdAt: string;
-}
+
 
 const NotificationsPage: React.FC = () => {
   const { user } = useAuth();
@@ -42,8 +27,7 @@ const NotificationsPage: React.FC = () => {
   const {
     data: notificationsData,
     isLoading: loading,
-    error,
-    refetch
+    error
   } = useQuery({
     queryKey: ['notifications', user?.id, showLast7Days],
     queryFn: async () => {
@@ -90,16 +74,9 @@ const NotificationsPage: React.FC = () => {
     }
   }, [notifications.length, pagination.unreadCount]);
 
-
-
-
-
-
-
   // Project invitation response mutation
   const invitationMutation = useMutation({
-    mutationFn: async ({ notificationId, projectId, invitationId, action }: {
-      notificationId: string;
+    mutationFn: async ({ projectId, invitationId, action }: {
       projectId: string;
       invitationId: string;
       action: 'accept' | 'decline';
@@ -107,7 +84,7 @@ const NotificationsPage: React.FC = () => {
       const response = await api.put(`/projects/${projectId}/invitation/${invitationId}`, { action });
       return { response: response.data, action };
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (data) => {
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['notifications', user?.id] });
       if (data.action === 'accept') {
@@ -139,7 +116,7 @@ const NotificationsPage: React.FC = () => {
       return;
     }
 
-    invitationMutation.mutate({ notificationId, projectId, invitationId, action });
+    invitationMutation.mutate({ projectId, invitationId, action });
   };
 
   const getNotificationIcon = (type: string) => {

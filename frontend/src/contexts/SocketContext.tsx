@@ -110,6 +110,45 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       }
     };
 
+    const handleProjectDeleted = (data: any) => {
+      const startTime = performance.now();
+      console.log('⏱️ Deletion event received at:', new Date().toISOString());
+      const projectId = data.project || data.projectId;
+      
+      if (projectId) {
+        // Always invalidate dashboard tasks when project is deleted
+        queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+        
+        // Remove from cache
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        queryClient.invalidateQueries({ queryKey: ['projects'] });
+        queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+        
+        // Redirect ALL users viewing this project
+        const isViewingProject = window.location.pathname.includes(`/project/${projectId}`) || 
+                               window.location.pathname.includes(`project/${projectId}`);
+        
+        if (isViewingProject) {
+          console.log('🚀 Navigating to dashboard immediately, processing time:', performance.now() - startTime, 'ms');
+          
+          // Use window.location for immediate redirect with page refresh
+          console.log('🔄 Using window.location.href for immediate redirect with page refresh');
+          window.location.href = '/dashboard';
+          
+          // Show toast immediately after navigation
+          const isDeleter = data.deletedBy?.id === user?.id;
+          if (isDeleter) {
+            toast.success(`Project "${data.projectName || 'Project'}" has been deleted successfully`);
+          } else {
+            toast.error(`Project "${data.projectName || 'Project'}" has been deleted and is no longer accessible`);
+          }
+        } else if (data.deletedBy?.id !== user.id) {
+          // Show notification for users not currently viewing the project
+          toast.error(`Project "${data.projectName || 'Project'}" has been deleted by ${data.deletedBy?.name || 'another user'}`);
+        }
+      }
+    };
+
     // Team Member Updates - Global listener
     const handleMemberAdded = (data: any) => {
       console.log('👥 Global: Member added', data);
@@ -123,14 +162,37 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     const handleMemberRemoved = (data: any) => {
       console.log('👥 Global: Member removed', data);
+      console.log('🔍 Member removal - current user.id:', user?.id, 'vs removed member.id:', data.memberId);
+      console.log('🌍 Current pathname:', window.location.pathname);
       if (data.projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', data.projectId] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
         queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
         
-        // If current user was removed, redirect them
-        if (data.memberId && data.removedBy !== user.id) {
-          // Check if we need to redirect (we'll get this info from the project query failure)
+        // If current user was removed, redirect them if they're viewing the project
+        // Compare both string formats to handle ObjectId vs string differences
+        const isRemovedUser = data.memberId === user?.id || data.memberId?.toString() === user?.id?.toString() || 
+                             data.member?.id === user?.id || data.member?.id?.toString() === user?.id?.toString();
+        console.log('🔍 Is removed user?', isRemovedUser, 'Comparisons:', {
+          'data.memberId === user.id': data.memberId === user?.id,
+          'data.member.id === user.id': data.member?.id === user?.id
+        });
+        
+        if (isRemovedUser) {
+          const isViewingProject = window.location.pathname.includes(`/project/${data.projectId}`) || 
+                                 window.location.pathname.includes(`project/${data.projectId}`);
+          
+          if (isViewingProject) {
+            window.location.href = '/dashboard';
+            toast.error(`You have been removed from project "${data.project?.name || 'Project'}" and no longer have access`);
+          } else {
+            // Show notification for removed users not currently viewing the project
+            toast.error(`You have been removed from project "${data.project?.name || 'Project'}" by ${data.removedBy?.name || 'an admin'}`);
+          }
+        } else if (data.removedBy?.id !== user?.id) {
+          // Show notification to other members about the removal
+          toast.success(`${data.member?.name || 'A member'} was removed from project "${data.project?.name || 'Project'}"`);
         }
       }
     };
@@ -145,26 +207,98 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     // Project Lifecycle Updates - Global listener
     const handleProjectUpdated = (data: any) => {
-      console.log('📋 Global: Project updated', data);
       const projectId = data.project?._id || data.project || data.projectId;
+      
+      console.log('📦 SocketContext: Project updated event received:', {
+        rawData: data,
+        extractedProjectId: projectId,
+        updateType: data.updateType,
+        currentPath: window.location.pathname
+      });
       
       if (projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', projectId] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
         
         // Handle special update types
-        if (data.updateType === 'archived' && data.archivedBy?.id !== user.id) {
-          toast.error(`Project "${data.project?.name || 'Project'}" has been archived by ${data.archivedBy?.name || 'another user'}`);
-          // Redirect if user is currently viewing this project
-          if (window.location.pathname.includes(projectId)) {
-            navigate('/projects');
+        if (data.updateType === 'archived') {
+          const startTime = performance.now();
+          console.log('⏱️ Archive event received at:', new Date().toISOString());
+          
+          // Always invalidate dashboard tasks when project is archived
+          queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+          
+          // Also refresh the project data to reflect archived status
+          queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+          
+          // Redirect ALL users viewing this project (regardless of who archived it)
+          const isViewingProject = window.location.pathname.includes(`/project/${projectId}`) || 
+                                 window.location.pathname.includes(`project/${projectId}`);
+          
+          console.log('🔍 Path check:', {
+            currentPath: window.location.pathname,
+            projectId,
+            isViewingProject,
+            pathIncludes1: window.location.pathname.includes(`/project/${projectId}`),
+            pathIncludes2: window.location.pathname.includes(`project/${projectId}`),
+            fullUrl: window.location.href
+          });
+          
+          if (isViewingProject) {
+            console.log('🚀 Navigating to dashboard immediately, processing time:', performance.now() - startTime, 'ms');
+            
+            // Use window.location for immediate redirect to avoid race conditions
+            console.log('🔄 Using window.location.href for immediate redirect');
+            window.location.href = '/dashboard';
+            
+            // Fallback with React Router navigation in case window.location fails
+            try {
+              navigate('/dashboard');
+            } catch (error) {
+              console.warn('React Router navigation failed, window.location already handled redirect');
+            }
+            
+            // Show toast immediately after navigation
+            const isArchiver = data.archivedBy?.id === user?.id;
+            if (isArchiver) {
+              toast.success(`Project "${data.project?.name || 'Project'}" has been archived successfully`);
+            } else {
+              toast.error(`Project "${data.project?.name || 'Project'}" has been archived and is no longer accessible`);
+            }
+          } else if (data.archivedBy?.id !== user.id) {
+            // Show notification for users not currently viewing the project
+            toast.error(`Project "${data.project?.name || 'Project'}" has been archived by ${data.archivedBy?.name || 'another user'}`);
+          }
+        } else if (data.updateType === 'unarchived') {
+          // Always invalidate dashboard tasks when project is unarchived
+          queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+          
+          if (data.unarchivedBy?.id !== user.id) {
+            toast.success(`Project "${data.project?.name || 'Project'}" has been unarchived by ${data.unarchivedBy?.name || 'another user'}`);
           }
         } else if (data.updateType === 'deleted') {
-          toast.error(`Project "${data.project?.name || 'Project'}" has been deleted`);
-          // Remove from cache and redirect
+          // Always invalidate dashboard tasks when project is deleted
+          queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+          
+          // Remove from cache
           queryClient.removeQueries({ queryKey: ['project', projectId] });
-          if (window.location.pathname.includes(projectId)) {
-            navigate('/projects');
+          
+          // Redirect ALL users viewing this project
+          const isViewingProject = window.location.pathname.includes(`/project/${projectId}`) || 
+                                 window.location.pathname.includes(`project/${projectId}`);
+          
+          if (isViewingProject) {
+            navigate('/dashboard');
+            // Show appropriate message based on who performed the action
+            const isDeleter = data.deletedBy?.id === user?.id;
+            if (isDeleter) {
+              toast.success(`Project "${data.project?.name || 'Project'}" has been deleted successfully`);
+            } else {
+              toast.error(`Project "${data.project?.name || 'Project'}" has been deleted and is no longer accessible`);
+            }
+          } else if (data.deletedBy?.id !== user.id) {
+            // Show notification for users not currently viewing the project
+            toast.error(`Project "${data.project?.name || 'Project'}" has been deleted by ${data.deletedBy?.name || 'another user'}`);
           }
         } else if (data.updateType === 'info') {
           toast.success('Project settings were updated');
@@ -172,23 +306,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       }
     };
 
-    const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Global: Project deleted', data);
-      const projectId = data.project || data.projectId;
-      
-      if (projectId) {
-        queryClient.removeQueries({ queryKey: ['project', projectId] });
-        queryClient.invalidateQueries({ queryKey: ['projects'] });
-        queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
-        
-        toast.error('Project has been deleted');
-        
-        // Redirect if user is currently viewing this project
-        if (window.location.pathname.includes(projectId)) {
-          navigate('/projects');
-        }
-      }
-    };
+
 
     // Notification Updates - Global listener (for hybrid notifications)
     const handleNotificationReceived = (notification: any) => {
@@ -225,6 +343,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     socket.on('role_changed', handleRoleChanged);
     socket.on('project_updated', handleProjectUpdated);
     socket.on('project_deleted', handleProjectDeleted);
+
     socket.on('project_created', handleProjectCreated);
     socket.on('notification_received', handleNotificationReceived);
     socket.on('notifications_updated', handleNotificationReceived);
@@ -246,6 +365,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       socket.off('role_changed', handleRoleChanged);
       socket.off('project_updated', handleProjectUpdated);
       socket.off('project_deleted', handleProjectDeleted);
+
       socket.off('project_created', handleProjectCreated);
       socket.off('notification_received', handleNotificationReceived);
       socket.off('notifications_updated', handleNotificationReceived);

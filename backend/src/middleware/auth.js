@@ -44,6 +44,11 @@ export const checkProjectAccess = (requiredRole = 'viewer') => {
         return res.status(404).json({ message: 'Project not found' });
       }
 
+      // Block access to archived projects
+      if (project.settings?.isArchived) {
+        return res.status(403).json({ message: 'Access denied. This project has been archived and is no longer accessible.' });
+      }
+
       const member = project.members.find(m => m.user._id.toString() === userId.toString());
       
       if (!member) {
@@ -75,6 +80,50 @@ export const checkProjectAccess = (requiredRole = 'viewer') => {
 export const checkProjectAdmin = checkProjectAccess('admin');
 export const checkProjectEditor = checkProjectAccess('editor');
 export const checkProjectViewer = checkProjectAccess('viewer');
+
+// Special middleware for archive operations that allows access to archived projects
+export const checkProjectAdminForArchive = (requiredRole = 'admin') => {
+  return async (req, res, next) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user._id;
+
+      const Project = (await import('../models/Project.js')).default;
+      const project = await Project.findById(projectId).populate('members.user', 'fullName username email');
+
+      if (!project) {
+        return res.status(404).json({ message: 'Project not found' });
+      }
+
+      // Note: We don't block archived projects here - that's the point!
+
+      const member = project.members.find(m => m.user._id.toString() === userId.toString());
+      
+      if (!member) {
+        return res.status(403).json({ message: 'Access denied. You are not a member of this project.' });
+      }
+
+      // Check role hierarchy: admin > editor > viewer
+      const roleHierarchy = { viewer: 1, editor: 2, admin: 3 };
+      const userRoleLevel = roleHierarchy[member.role];
+      const requiredRoleLevel = roleHierarchy[requiredRole];
+
+      if (userRoleLevel < requiredRoleLevel) {
+        return res.status(403).json({ 
+          message: `Access denied. Required role: ${requiredRole}, your role: ${member.role}` 
+        });
+      }
+
+      req.project = project;
+      req.memberRole = member.role;
+      req.isProjectCreator = project.creator.toString() === userId.toString();
+      next();
+    } catch (error) {
+      console.error('Project access check error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  };
+};
 
 // Specific permission checks
 export const canManageTeam = checkProjectAccess('admin');

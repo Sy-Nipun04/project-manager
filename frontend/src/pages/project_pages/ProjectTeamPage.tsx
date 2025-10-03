@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
@@ -40,7 +40,7 @@ const ProjectTeamPage: React.FC = () => {
   const { error, handleApiError, clearError } = useApiError();
   const queryClient = useQueryClient();
   const { socket } = useSocket();
-  const navigate = useNavigate();
+
   
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
@@ -90,7 +90,7 @@ const ProjectTeamPage: React.FC = () => {
       if (data.project === projectId || data.projectId === projectId) {
         queryClient.removeQueries({ queryKey: ['project', projectId] });
         toast.error('This project has been deleted');
-        navigate('/projects');
+        window.location.href = '/projects';
       }
     };
 
@@ -111,6 +111,13 @@ const ProjectTeamPage: React.FC = () => {
       invalidateProject();
     });
     socket.on('project_updated', (data) => {
+      // Handle archive events
+      if (data.updateType === 'archived') {
+        console.log('📦 ProjectTeamPage: Project archived, redirecting with page refresh');
+        window.location.href = '/dashboard';
+        return;
+      }
+      
       if (data.type === 'member_added' || data.type === 'member_removed' || data.type === 'role_changed') {
         console.log('👥 Cache invalidation: project_updated -', data.type);
         invalidateProject();

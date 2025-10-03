@@ -197,7 +197,7 @@ const ProjectSettingsPage: React.FC = () => {
       invalidateProjects();
       queryClient.removeQueries({ queryKey: ['project', projectId] });
       
-      toast.success('Project archived successfully. All members have been notified.');
+      // Navigate immediately - socket event will handle redirect and notification
       navigate('/projects');
     },
     onError: (error: any) => {
@@ -431,11 +431,32 @@ const ProjectSettingsPage: React.FC = () => {
 
     console.log('⚙️ ProjectSettingsPage: Joining project room:', projectId);
 
+    // Handle archive events
+    const handleProjectUpdated = (data: any) => {
+      if (data.updateType === 'archived') {
+        console.log('📦 ProjectSettingsPage: Project archived, redirecting with page refresh');
+        window.location.href = '/dashboard';
+      }
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      if (data.project === projectId || data.projectId === projectId) {
+        console.log('🗑️ ProjectSettingsPage: Project deleted, redirecting with page refresh');
+        window.location.href = '/dashboard';
+      }
+    };
+
     // Join project room for real-time updates
     socket.emit('join_project', projectId);
 
+    // Register event listeners
+    socket.on('project_updated', handleProjectUpdated);
+    socket.on('project_deleted', handleProjectDeleted);
+
     return () => {
       console.log('⚙️ ProjectSettingsPage: Leaving project room:', projectId);
+      socket.off('project_updated', handleProjectUpdated);
+      socket.off('project_deleted', handleProjectDeleted);
       socket.emit('leave_project', projectId);
     };
   }, [socket, projectId]);

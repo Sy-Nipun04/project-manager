@@ -12,9 +12,10 @@ const router = express.Router();
 // Get dashboard tasks (first doing task from 5 most recently updated projects)
 router.get('/dashboard', async (req, res) => {
   try {
-    // Get 5 most recently updated projects where user is a member
+    // Get 5 most recently updated NON-ARCHIVED projects where user is a member
     const projects = await Project.find({
-      'members.user': req.user._id
+      'members.user': req.user._id,
+      'settings.isArchived': false  // Exclude archived projects from dashboard
     })
     .select('_id name updatedAt')
     .sort({ updatedAt: -1 })
