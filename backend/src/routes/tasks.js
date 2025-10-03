@@ -58,6 +58,7 @@ router.get('/project/:projectId', checkProjectAccess('viewer'), async (req, res)
     })
     .populate('assignedTo', 'fullName username email profileImage')
     .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage')
     .sort({ position: 1, createdAt: 1 });
 
     // Group tasks by column and maintain position order
@@ -317,7 +318,8 @@ router.put('/:taskId/move', checkTaskEditor, [
       { new: true, runValidators: true }
     )
     .populate('assignedTo', 'fullName username email profileImage')
-    .populate('createdBy', 'fullName username email profileImage');
+    .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage');
 
     // No notifications for task movement
 
@@ -395,7 +397,8 @@ router.put('/:taskId/reorder', checkTaskEditor, [
     // Get updated task with populated fields
     const updatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'fullName username email profileImage')
-      .populate('createdBy', 'fullName username email profileImage');
+      .populate('createdBy', 'fullName username email profileImage')
+      .populate('comments.user', 'fullName username email profileImage');
 
     // Emit real-time task reordered event
     emitToProjectMembers(getSocketInstance(), task.project, 'task-moved', {
@@ -502,7 +505,8 @@ router.put('/:taskId', checkTaskEditor, [
       { new: true, runValidators: true }
     )
     .populate('assignedTo', 'fullName username email profileImage')
-    .populate('createdBy', 'fullName username email profileImage');
+    .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage');
 
     // Create notification only if priority was changed to high
     if (priority === 'high' && task.priority !== 'high') {

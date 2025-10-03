@@ -83,8 +83,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <h2 className="text-xl font-semibold text-gray-900 line-clamp-2">
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <h2 className="text-xl font-semibold text-gray-900 line-clamp-2 break-words pr-2">
               {task.title}
             </h2>
           </div>
@@ -135,7 +135,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {task.description && (
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-2">Description</h3>
-              <p className="text-gray-900 whitespace-pre-wrap">{task.description}</p>
+              <div className="max-h-48 overflow-y-auto bg-gray-50 rounded-lg p-3 border">
+                <p className="text-gray-900 whitespace-pre-wrap break-words">{task.description}</p>
+              </div>
             </div>
           )}
 
