@@ -32,7 +32,7 @@ export const cleanupOldActivities = async () => {
     }
     
     if (totalDeleted > 0) {
-      console.log(`Cleaned up ${totalDeleted} old activities (keeping 15 most recent per project)`);
+
     }
     
     return totalDeleted;
@@ -50,5 +50,5 @@ export const startActivityCleanup = () => {
   // Then run every 24 hours
   setInterval(cleanupOldActivities, 24 * 60 * 60 * 1000);
   
-  console.log('Activity cleanup scheduler started');
+
 };

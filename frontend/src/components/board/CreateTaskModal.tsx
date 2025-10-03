@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import type { CreateTaskData } from '../../hooks/useTask';
+import { TASK_COLUMNS } from '../../constants';
+import type { TaskColumn } from '../../constants';
 
-type ColumnType = 'todo' | 'doing' | 'done';
+type ColumnType = TaskColumn;
 
 interface CreateTaskModalProps {
   isOpen: boolean;
@@ -24,7 +26,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
-  initialColumn = 'todo',
+  initialColumn = TASK_COLUMNS.TODO,
   isLoading = false,
   projectMembers = []
 }) => {
@@ -159,9 +161,9 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
                 onChange={(e) => setFormData(prev => ({ ...prev, column: e.target.value as ColumnType }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors bg-white appearance-none cursor-pointer"
               >
-                <option value="todo" style={{backgroundColor: '#f9fafb', color: '#374151'}}>To Do</option>
-                <option value="doing" style={{backgroundColor: '#eff6ff', color: '#1d4ed8'}}>Doing</option>
-                <option value="done" style={{backgroundColor: '#f0fdf4', color: '#166534'}}>Done</option>
+                <option value={TASK_COLUMNS.TODO} style={{backgroundColor: '#f9fafb', color: '#374151'}}>To Do</option>
+                <option value={TASK_COLUMNS.DOING} style={{backgroundColor: '#eff6ff', color: '#1d4ed8'}}>Doing</option>
+                <option value={TASK_COLUMNS.DONE} style={{backgroundColor: '#f0fdf4', color: '#166534'}}>Done</option>
               </select>
             </div>
 

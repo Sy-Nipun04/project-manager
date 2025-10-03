@@ -1,9 +1,8 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import Layout from '../../components/Layout';
 import { DashboardTaskCard } from '../../components/dashboard/DashboardTaskCard';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { useSocket } from '../../contexts/SocketContext';
 import { FolderOpen, Clock, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -12,25 +11,33 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { socket } = useSocket();
-  const queryClient = useQueryClient();
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
-    queryKey: ['projects', user?.id],
+    queryKey: ['projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
       return response.data.projects;
     },
     enabled: !!user,
+    staleTime: 30 * 1000, // 30 seconds for fresh data
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (efficient fallback)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   const { data: dashboardTasks, isLoading: tasksLoading } = useQuery({
-    queryKey: ['dashboard-tasks', user?.id],
+    queryKey: ['dashboard-tasks'],
     queryFn: async () => {
       const response = await api.get('/tasks/dashboard');
       return response.data.tasks;
     },
     enabled: !!user,
+    staleTime: 30 * 1000, // 30 seconds for fresh data
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (efficient fallback)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   const { data: friends, isLoading: friendsLoading } = useQuery({
@@ -40,6 +47,11 @@ const Dashboard: React.FC = () => {
       return response.data.friends;
     },
     enabled: !!user,
+    staleTime: 30 * 1000, // 30 seconds for fresh data
+    refetchInterval: 10 * 60 * 1000, // 10 minutes (efficient fallback)
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   const getCurrentTasks = () => {
@@ -61,28 +73,8 @@ const Dashboard: React.FC = () => {
   const stats = getStats();
   const currentTasks = getCurrentTasks();
 
-  // Real-time updates for dashboard
-  useEffect(() => {
-    if (!socket || !user) return;
-
-    const handleTaskUpdate = () => {
-      // Invalidate dashboard tasks to refetch updated data
-      queryClient.invalidateQueries({ queryKey: ['dashboard-tasks', user.id] });
-    };
-
-    // Listen for any task-related events
-    socket.on('task-created', handleTaskUpdate);
-    socket.on('task-updated', handleTaskUpdate);
-    socket.on('task-deleted', handleTaskUpdate);
-    socket.on('task-moved', handleTaskUpdate);
-
-    return () => {
-      socket.off('task-created', handleTaskUpdate);
-      socket.off('task-updated', handleTaskUpdate);
-      socket.off('task-deleted', handleTaskUpdate);
-      socket.off('task-moved', handleTaskUpdate);
-    };
-  }, [socket, user, queryClient]);
+  // Note: Real-time updates are now handled globally in SocketContext
+  // This ensures updates work regardless of which page the user is on
 
   if (projectsLoading || tasksLoading || friendsLoading) {
     return (

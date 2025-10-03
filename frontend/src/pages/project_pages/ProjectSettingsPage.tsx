@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProject, useProjects } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
+import { useSocket } from '../../contexts/SocketContext';
 import { 
   CogIcon,
   UserIcon,
@@ -35,6 +36,7 @@ const ProjectSettingsPage: React.FC = () => {
   const { user } = useAuth(); // Using for authentication context
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
   const [activeTab, setActiveTab] = useState('general');
   
   // State for modals and forms
@@ -53,8 +55,8 @@ const ProjectSettingsPage: React.FC = () => {
   const [showRemoveMemberModal, setShowRemoveMemberModal] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<{ id: string; name: string; isCurrentUser: boolean } | null>(null);
 
-  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
-  const { invalidateProjects } = useProjects();
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId, { enablePolling: true });
+  const { invalidateProjects } = useProjects({ enablePolling: true });
 
   // Get permissions using fresh project data
   const { isMember, userRole } = usePermissions(project);
@@ -195,7 +197,7 @@ const ProjectSettingsPage: React.FC = () => {
       invalidateProjects();
       queryClient.removeQueries({ queryKey: ['project', projectId] });
       
-      toast.success('Project archived successfully. All members have been notified.');
+      // Navigate immediately - socket event will handle redirect and notification
       navigate('/projects');
     },
     onError: (error: any) => {
@@ -422,6 +424,42 @@ const ProjectSettingsPage: React.FC = () => {
 
     fetchFriends();
   }, []);
+
+  // Join/leave project room for real-time updates (global listeners handle cache invalidation)
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+
+
+    // Handle archive events
+    const handleProjectUpdated = (data: any) => {
+      if (data.updateType === 'archived') {
+
+        window.location.href = '/dashboard';
+      }
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      if (data.project === projectId || data.projectId === projectId) {
+
+        window.location.href = '/dashboard';
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Register event listeners
+    socket.on('project_updated', handleProjectUpdated);
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+
+      socket.off('project_updated', handleProjectUpdated);
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId]);
 
   if (isLoading) {
     return (
@@ -876,7 +914,20 @@ const ProjectSettingsPage: React.FC = () => {
             }}
           >
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Invite Team Member</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+                <button 
+                  onClick={() => {
+                    setShowInviteModal(false);
+                    setInviteEmail('');
+                    setInviteRole('viewer');
+                    setShowSuggestions(false);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               <p className="text-sm text-gray-600 mb-4">
                 Send an invitation to join this project. The user will receive a notification and can accept or decline the invitation.
               </p>
@@ -963,14 +1014,7 @@ const ProjectSettingsPage: React.FC = () => {
                   </select>
                 </div>
                 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={inviteMemberMutation.isPending}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                  >
-                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -979,9 +1023,16 @@ const ProjectSettingsPage: React.FC = () => {
                       setInviteRole('viewer');
                       setShowSuggestions(false);
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={inviteMemberMutation.isPending}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
                   </button>
                 </div>
               </form>
@@ -1145,20 +1196,20 @@ const ProjectSettingsPage: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowRoleChangeModal(false);
                     setPendingRoleChange(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmRoleChange}
                   disabled={updateMemberRoleMutation.isPending}
-                  className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 transition-colors"
                 >
                   {updateMemberRoleMutation.isPending ? 'Updating...' : 'Confirm Change'}
                 </button>
@@ -1203,20 +1254,20 @@ const ProjectSettingsPage: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowRemoveMemberModal(false);
                     setMemberToRemove(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmRemoveMember}
                   disabled={removeMemberMutation.isPending}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
                   {removeMemberMutation.isPending ? 'Removing...' : (memberToRemove.isCurrentUser ? 'Leave Project' : 'Remove Member')}
                 </button>

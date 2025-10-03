@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { getRoleDisplayInfo } from '../../lib/permissions';
 import { InformationCircleIcon, UserIcon, PencilIcon, DocumentTextIcon, CheckIcon, XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { useSocket } from '../../contexts/SocketContext';
 import ReactMarkdown from 'react-markdown';
 import MDEditor from '@uiw/react-md-editor';
 import '@uiw/react-md-editor/markdown-editor.css';
@@ -18,6 +19,7 @@ const ProjectInfoPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
   
   // State for markdown editing
   const [isEditingDetails, setIsEditingDetails] = useState(false);
@@ -33,7 +35,7 @@ const ProjectInfoPage: React.FC = () => {
 
 
 
-  const { project, isLoading, invalidateProject } = useProject(projectId);
+  const { project, isLoading, invalidateProject } = useProject(projectId, { enablePolling: true });
 
   // Get permissions using fresh project data
   const { can, isMember, userRole } = usePermissions(project);
@@ -48,7 +50,7 @@ const ProjectInfoPage: React.FC = () => {
       return response.data.project;
     },
     onSuccess: (updatedProject) => {
-      console.log('Updated project:', updatedProject);
+
       queryClient.setQueryData(['project', projectId], updatedProject);
       invalidateProject();
       toast.success('Project details updated successfully');
@@ -75,7 +77,7 @@ const ProjectInfoPage: React.FC = () => {
       return response.data.project;
     },
     onSuccess: (updatedProject) => {
-      console.log('Project info updated:', updatedProject);
+
       queryClient.setQueryData(['project', projectId], updatedProject);
       invalidateProject();
       
@@ -118,12 +120,57 @@ const ProjectInfoPage: React.FC = () => {
     }
   }, [project]);
 
+  // Real-time project info updates
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+
+
+    // Project info update handler removed - now using React Query polling
+
+    const handleProjectDeleted = (data: any) => {
+
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        window.location.href = '/projects';
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Listen for access control events only
+    // Hybrid approach: Long polling + instant cache updates for info changes
+    socket.on('project_updated', (data) => {
+      // Handle archive events
+      if (data.updateType === 'archived') {
+
+        window.location.href = '/dashboard';
+        return;
+      }
+      
+      if (data.type !== 'archive' && data.type !== 'delete') {
+
+        invalidateProject();
+      }
+    });
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+
+      socket.off('project_updated'); // Info updates removed
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, invalidateProject]);
+
   // Handlers for markdown editing
   const handleEditDetails = () => {
     const currentContent = project?.markdownContent || '';
     setMarkdownContent(currentContent);
     setIsEditingDetails(true);
-    console.log('Starting edit with content:', currentContent);
+
   };
 
   const handleSaveDetails = () => {
@@ -137,7 +184,7 @@ const ProjectInfoPage: React.FC = () => {
       updateProjectDetailsMutation.mutate(markdownContent);
     } else {
       setIsEditingDetails(false);
-      console.log('No changes detected, not saving');
+
     }
   };
 
@@ -145,7 +192,7 @@ const ProjectInfoPage: React.FC = () => {
     const currentContent = project?.markdownContent || '';
     setMarkdownContent(currentContent);
     setIsEditingDetails(false);
-    console.log('Cancelled edit, reset to:', currentContent);
+
   };
 
   // Handlers for project information editing
@@ -613,15 +660,23 @@ const ProjectInfoPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="flex-shrink-0">
-                  <ExclamationTriangleIcon className="h-6 w-6 text-amber-600" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <ExclamationTriangleIcon className="h-6 w-6 text-amber-600" />
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Confirm Name Change
+                    </h3>
+                  </div>
                 </div>
-                <div className="ml-3">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Confirm Name Change
-                  </h3>
-                </div>
+                <button
+                  onClick={() => setShowNameChangeConfirm(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
               </div>
 
               <div className="mb-4">

@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { useApiError, ErrorMessage } from '../../hooks/useApiError';
+import { useSocket } from '../../contexts/SocketContext';
 import { 
   UsersIcon, 
   PlusIcon, 
@@ -17,7 +18,8 @@ import {
   ShieldCheckIcon,
   EyeIcon,
   PencilIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -38,6 +40,8 @@ const ProjectTeamPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { error, handleApiError, clearError } = useApiError();
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
+
   
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
@@ -47,7 +51,7 @@ const ProjectTeamPage: React.FC = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId);
+  const { project, isLoading, invalidateProject, updateProjectOptimistically } = useProject(projectId, { enablePolling: true });
 
   // Get permissions using fresh project data
   const { can, isMember } = usePermissions(project);
@@ -72,6 +76,67 @@ const ProjectTeamPage: React.FC = () => {
 
     fetchFriends();
   }, []);
+
+  // Real-time team updates
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+
+
+    // Socket handlers for info updates removed - now using React Query polling
+    // Team info will be updated through React Query refetch mechanisms
+
+    const handleProjectDeleted = (data: any) => {
+
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        window.location.href = '/projects';
+      }
+    };
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Hybrid approach: Long polling (10min) + instant cache updates via sockets
+    socket.on('member_added', () => {
+      console.log('👥 Cache invalidation: member_added');
+      invalidateProject();
+    });
+    socket.on('member_removed', () => {
+      console.log('👥 Cache invalidation: member_removed');
+      invalidateProject();
+    });
+    socket.on('role_changed', () => {
+      console.log('👥 Cache invalidation: role_changed');
+      invalidateProject();
+    });
+    socket.on('project_updated', (data) => {
+      // Handle archive events
+      if (data.updateType === 'archived') {
+
+        window.location.href = '/dashboard';
+        return;
+      }
+      
+      if (data.type === 'member_added' || data.type === 'member_removed' || data.type === 'role_changed') {
+
+        invalidateProject();
+      }
+    });
+    socket.on('project_deleted', handleProjectDeleted);
+
+    return () => {
+      console.log('� ProjectTeamPage: Cleaning up socket listeners');
+      // Cache invalidation listeners cleanup
+      socket.off('member_added');
+      socket.off('member_removed');
+      socket.off('role_changed');
+      socket.off('project_updated');
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, invalidateProject]);
 
 
 
@@ -592,7 +657,20 @@ const ProjectTeamPage: React.FC = () => {
             }}
           >
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Invite Team Member</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+                <button 
+                  onClick={() => {
+                    setShowAddMember(false);
+                    setMemberEmail('');
+                    setMemberRole('viewer');
+                    setShowSuggestions(false);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               <p className="text-sm text-gray-600 mb-4">
                 Send an invitation to join this project. The user will receive a notification and can accept or decline the invitation.
               </p>
@@ -679,14 +757,7 @@ const ProjectTeamPage: React.FC = () => {
                   </select>
                 </div>
                 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={inviteMemberMutation.isPending}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                  >
-                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -695,9 +766,16 @@ const ProjectTeamPage: React.FC = () => {
                       setMemberRole('viewer');
                       setShowSuggestions(false);
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={inviteMemberMutation.isPending}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
                   </button>
                 </div>
               </form>

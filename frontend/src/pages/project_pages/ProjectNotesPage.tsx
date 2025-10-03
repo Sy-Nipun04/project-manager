@@ -5,6 +5,7 @@ import Layout from '../../components/Layout';
 import { api } from '../../lib/api';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSocket } from '../../contexts/SocketContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useProject } from '../../hooks/useProject';
 import { 
@@ -19,10 +20,12 @@ import {
   UserGroupIcon,
   BellIcon,
   InformationCircleIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkSolidIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
+import { TaskSelectionModal } from '../../components/notes/TaskSelectionModal';
 
 interface Note {
   _id: string;
@@ -49,11 +52,7 @@ interface Note {
   isBookmarked?: boolean;
 }
 
-interface Task {
-  _id: string;
-  title: string;
-  status: 'todo' | 'doing' | 'done';
-}
+
 
 interface Member {
   user: {
@@ -68,13 +67,17 @@ const ProjectNotesPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject } = useSidebar();
   const { user: currentUser } = useAuth();
+  const { socket } = useSocket();
   const queryClient = useQueryClient();
+
   
   const [activeTab, setActiveTab] = useState<'all' | 'bookmarks' | 'activity'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
   const [showImportantConfirm, setShowImportantConfirm] = useState(false);
   const [pendingNoteData, setPendingNoteData] = useState<any>(null);
   
@@ -84,6 +87,9 @@ const ProjectNotesPage: React.FC = () => {
   const [noteType, setNoteType] = useState<'notice' | 'issue' | 'reminder' | 'important' | 'other'>('notice');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [taggedMembers, setTaggedMembers] = useState<Array<{_id: string; fullName: string; username: string}>>([]);
+  const [showTaskSelectionModal, setShowTaskSelectionModal] = useState(false);
 
   // Original values for change detection in edit mode
   const [originalTitle, setOriginalTitle] = useState('');
@@ -105,7 +111,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes`);
       return response.data.notes;
     },
-    enabled: !!projectId
+    enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data when component mounts
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch tasks for referencing
@@ -115,7 +124,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/tasks`);
       return response.data.tasks;
     },
-    enabled: !!projectId
+    enabled: !!projectId,
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch bookmarked notes
@@ -125,7 +137,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes/bookmarks`);
       return response.data.notes;
     },
-    enabled: !!projectId && activeTab === 'bookmarks'
+    enabled: !!projectId && activeTab === 'bookmarks',
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Fetch recent activity
@@ -135,7 +150,10 @@ const ProjectNotesPage: React.FC = () => {
       const response = await api.get(`/projects/${projectId}/notes/activity`);
       return response.data.activities;
     },
-    enabled: !!projectId && activeTab === 'activity'
+    enabled: !!projectId && activeTab === 'activity',
+    staleTime: 30 * 1000, // 30 seconds
+    refetchOnMount: 'always', // Always get fresh data
+    refetchOnWindowFocus: true // Refetch when user comes back to tab
   });
 
   // Auto-select the project in sidebar
@@ -144,6 +162,74 @@ const ProjectNotesPage: React.FC = () => {
       setSelectedProject(project);
     }
   }, [project, selectedProject, setSelectedProject]);
+
+  // Real-time socket listeners for notes
+  useEffect(() => {
+    if (!socket || !projectId) return;
+
+
+
+    // Join project room for real-time updates
+    socket.emit('join_project', projectId);
+
+    // Handle note events
+    const handleNoteCreated = (data: any) => {
+      console.log('📝 Received note-created event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleNoteUpdated = (data: any) => {
+      console.log('✏️ Received note-updated event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleNoteDeleted = (data: any) => {
+      console.log('🗑️ Received note-deleted event:', data);
+      queryClient.invalidateQueries({ queryKey: ['notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['bookmarked-notes', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['notes-activity', projectId] });
+    };
+
+    const handleProjectDeleted = (data: any) => {
+      console.log('🗑️ Project deleted event received:', data);
+      if (data.project === projectId || data.projectId === projectId) {
+        queryClient.removeQueries({ queryKey: ['project', projectId] });
+        toast.error('This project has been deleted');
+        window.location.href = '/projects';
+      }
+    };
+
+    // Handle archive events
+    const handleProjectUpdated = (data: any) => {
+      if (data.updateType === 'archived') {
+        console.log('📦 ProjectNotesPage: Project archived, redirecting with page refresh');
+        window.location.href = '/dashboard';
+      }
+    };
+
+    // Register event listeners
+    socket.on('note-created', handleNoteCreated);
+    socket.on('note-updated', handleNoteUpdated);
+    socket.on('note-deleted', handleNoteDeleted);
+    socket.on('project_deleted', handleProjectDeleted);
+    socket.on('project_updated', handleProjectUpdated);
+
+    return () => {
+      // Clean up listeners
+      socket.off('note-created', handleNoteCreated);
+      socket.off('note-updated', handleNoteUpdated);
+      socket.off('note-deleted', handleNoteDeleted);
+      socket.off('project_deleted', handleProjectDeleted);
+      socket.off('project_updated', handleProjectUpdated);
+      
+      // Leave project room
+      socket.emit('leave_project', projectId);
+    };
+  }, [socket, projectId, queryClient]);
 
   // Create note mutation
   const createNoteMutation = useMutation({
@@ -266,12 +352,36 @@ const ProjectNotesPage: React.FC = () => {
     );
   };
 
+  // Helper functions for member management
+  const addMember = (member: {_id: string; fullName: string; username: string}) => {
+    if (!taggedMembers.find(m => m._id === member._id)) {
+      const newTaggedMembers = [...taggedMembers, member];
+      setTaggedMembers(newTaggedMembers);
+      setSelectedMembers(newTaggedMembers.map(m => m._id));
+    }
+    setMemberSearch('');
+  };
+
+  const removeMember = (memberId: string) => {
+    const newTaggedMembers = taggedMembers.filter(m => m._id !== memberId);
+    setTaggedMembers(newTaggedMembers);
+    setSelectedMembers(newTaggedMembers.map(m => m._id));
+  };
+
+  // Helper function to handle task selection
+  const handleTaskSelection = (taskIds: string[]) => {
+    setSelectedTasks(taskIds);
+  };
+
   const resetForm = () => {
     setNoteTitle('');
     setNoteContent('');
     setNoteType('notice');
     setSelectedMembers([]);
     setSelectedTasks([]);
+    setMemberSearch('');
+    setTaggedMembers([]);
+    setShowTaskSelectionModal(false);
     
     // Clear original values for change detection
     setOriginalTitle('');
@@ -373,6 +483,7 @@ const ProjectNotesPage: React.FC = () => {
     setNoteType(note.type);
     setSelectedMembers(note.taggedMembers.map(m => m._id));
     setSelectedTasks(note.referencedTasks.map(t => t._id));
+    setTaggedMembers(note.taggedMembers);
     
     // Set original values for change detection
     setOriginalTitle(note.title);
@@ -385,9 +496,21 @@ const ProjectNotesPage: React.FC = () => {
   };
 
   const handleDeleteNote = (note: Note) => {
-    if (window.confirm('Are you sure you want to delete this note?')) {
-      deleteNoteMutation.mutate(note._id);
+    setNoteToDelete(note);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteNote = () => {
+    if (noteToDelete) {
+      deleteNoteMutation.mutate(noteToDelete._id);
+      setShowDeleteModal(false);
+      setNoteToDelete(null);
     }
+  };
+
+  const cancelDeleteNote = () => {
+    setShowDeleteModal(false);
+    setNoteToDelete(null);
   };
 
   const toggleBookmark = (note: Note) => {
@@ -430,6 +553,28 @@ const ProjectNotesPage: React.FC = () => {
   };
 
   const canCreateNotes = can.createNotes && can.createNotes();
+
+  // Filter members for search dropdown
+  const filteredMembers = project?.members?.filter((member: Member) => {
+    const searchLower = memberSearch.toLowerCase();
+    const alreadyTagged = taggedMembers.some(tagged => tagged._id === member.user._id);
+    const isCurrentUser = member.user._id === currentUser?.id;
+    return !alreadyTagged && !isCurrentUser && (
+      member.user.fullName.toLowerCase().includes(searchLower) ||
+      member.user.username.toLowerCase().includes(searchLower)
+    );
+  }) || [];
+
+  // Convert tasks format for TaskSelectionModal
+  const allTasks = tasks ? Object.values(tasks).flat() : [];
+  const formattedTasks = React.useMemo(() => {
+    return allTasks.map((task: any) => ({
+      _id: task._id,
+      title: task.title,
+      description: task.description || '',
+      column: task.column || 'todo'
+    }));
+  }, [allTasks]);
 
   if (isLoading) {
     return (
@@ -729,7 +874,18 @@ const ProjectNotesPage: React.FC = () => {
         {showCreateModal && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Create Note</h3>
+                <button 
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    resetForm();
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               
               <form onSubmit={handleCreateNote} className="space-y-4">
                 <div>
@@ -782,74 +938,131 @@ const ProjectNotesPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
-                      <label key={member.user._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(member.user._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMembers([...selectedMembers, member.user._id]);
-                            } else {
-                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{member.user.fullName}</span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Tagged Members Display */}
+                  {taggedMembers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {taggedMembers.map((member) => (
+                        <span
+                          key={member._id}
+                          className="inline-flex items-center gap-2 px-3 py-1 bg-teal-100 text-teal-800 text-sm rounded-full"
+                        >
+                          <div className="w-5 h-5 bg-teal-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                            {member.fullName.charAt(0)}
+                          </div>
+                          {member.fullName}
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member._id)}
+                            className="text-teal-600 hover:text-teal-800 ml-1"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Member Search */}
+                  {project.members && project.members.length > 0 && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        placeholder="Search members to tag..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                      />
+                      
+                      {/* Search Results */}
+                      {memberSearch && filteredMembers.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                          {filteredMembers.map((member: Member) => (
+                            <button
+                              key={member.user._id}
+                              type="button"
+                              onClick={() => addMember(member.user)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                            >
+                              <div className="w-6 h-6 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                {member.user.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{member.user.fullName}</div>
+                                <div className="text-xs text-gray-500">@{member.user.username}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {tasks?.map((task: Task) => (
-                      <label key={task._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedTasks.includes(task._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTasks([...selectedTasks, task._id]);
-                            } else {
-                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{task.title}</span>
-                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                          task.status === 'done' ? 'bg-green-100 text-green-800' :
-                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {task.status}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Selected Tasks Display */}
+                  {selectedTasks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {selectedTasks.map((taskId) => {
+                        const task = formattedTasks.find(t => t._id === taskId);
+                        if (!task) return null;
+                        return (
+                          <span
+                            key={taskId}
+                            className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full"
+                          >
+                            <TagIcon className="w-4 h-4" />
+                            {task.title}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTasks(prev => prev.filter(id => id !== taskId))}
+                              className="text-green-600 hover:text-green-800 ml-1"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Select Tasks Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowTaskSelectionModal(true)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-left text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        {selectedTasks.length > 0 
+                          ? `${selectedTasks.length} task${selectedTasks.length !== 1 ? 's' : ''} selected`
+                          : 'Select tasks to reference...'
+                        }
+                      </span>
+                      <TagIcon className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </button>
                 </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={createNoteMutation.isPending}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                  >
-                    {createNoteMutation.isPending ? 'Creating...' : 'Create Note'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreateModal(false);
                       resetForm();
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createNoteMutation.isPending}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {createNoteMutation.isPending ? 'Creating...' : 'Create Note'}
                   </button>
                 </div>
               </form>
@@ -861,7 +1074,18 @@ const ProjectNotesPage: React.FC = () => {
         {showEditModal && editingNote && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Note</h3>
+                <button 
+                  onClick={() => {
+                    setShowEditModal(false);
+                    resetForm();
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               
               <form onSubmit={handleEditNote} className="space-y-4">
                 <div>
@@ -914,67 +1138,115 @@ const ProjectNotesPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
-                      <label key={member.user._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(member.user._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMembers([...selectedMembers, member.user._id]);
-                            } else {
-                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{member.user.fullName}</span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Tagged Members Display */}
+                  {taggedMembers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {taggedMembers.map((member) => (
+                        <span
+                          key={member._id}
+                          className="inline-flex items-center gap-2 px-3 py-1 bg-teal-100 text-teal-800 text-sm rounded-full"
+                        >
+                          <div className="w-5 h-5 bg-teal-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                            {member.fullName.charAt(0)}
+                          </div>
+                          {member.fullName}
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member._id)}
+                            className="text-teal-600 hover:text-teal-800 ml-1"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Member Search */}
+                  {project.members && project.members.length > 0 && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        placeholder="Search members to tag..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                      />
+                      
+                      {/* Search Results */}
+                      {memberSearch && filteredMembers.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                          {filteredMembers.map((member: Member) => (
+                            <button
+                              key={member.user._id}
+                              type="button"
+                              onClick={() => addMember(member.user)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                            >
+                              <div className="w-6 h-6 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                {member.user.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{member.user.fullName}</div>
+                                <div className="text-xs text-gray-500">@{member.user.username}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {tasks?.map((task: Task) => (
-                      <label key={task._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedTasks.includes(task._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTasks([...selectedTasks, task._id]);
-                            } else {
-                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{task.title}</span>
-                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                          task.status === 'done' ? 'bg-green-100 text-green-800' :
-                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {task.status}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Selected Tasks Display */}
+                  {selectedTasks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {selectedTasks.map((taskId) => {
+                        const task = formattedTasks.find(t => t._id === taskId);
+                        if (!task) return null;
+                        return (
+                          <span
+                            key={taskId}
+                            className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full"
+                          >
+                            <TagIcon className="w-4 h-4" />
+                            {task.title}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTasks(prev => prev.filter(id => id !== taskId))}
+                              className="text-green-600 hover:text-green-800 ml-1"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Select Tasks Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowTaskSelectionModal(true)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-left text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        {selectedTasks.length > 0 
+                          ? `${selectedTasks.length} task${selectedTasks.length !== 1 ? 's' : ''} selected`
+                          : 'Select tasks to reference...'
+                        }
+                      </span>
+                      <TagIcon className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </button>
                 </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={updateNoteMutation.isPending || !hasChanges()}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title={!hasChanges() && !updateNoteMutation.isPending ? 'No changes to save' : ''}
-                  >
-                    {updateNoteMutation.isPending ? 'Updating...' : 
-                     !hasChanges() ? 'No Changes' : 'Update Note'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -982,9 +1254,18 @@ const ProjectNotesPage: React.FC = () => {
                       setEditingNote(null);
                       resetForm();
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={updateNoteMutation.isPending || !hasChanges()}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title={!hasChanges() && !updateNoteMutation.isPending ? 'No changes to save' : ''}
+                  >
+                    {updateNoteMutation.isPending ? 'Updating...' : 
+                     !hasChanges() ? 'No Changes' : 'Update Note'}
                   </button>
                 </div>
               </form>
@@ -996,35 +1277,96 @@ const ProjectNotesPage: React.FC = () => {
         {showImportantConfirm && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <div className="flex items-center space-x-3 mb-4">
-                <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
-                <h3 className="text-lg font-semibold text-gray-900">Important Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
+                  <h3 className="text-lg font-semibold text-gray-900">Important Note</h3>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowImportantConfirm(false);
+                    setPendingNoteData(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
               </div>
               
               <p className="text-gray-600 mb-6">
                 Marking this note as "Important" will notify all project members. Are you sure you want to continue?
               </p>
               
-              <div className="flex space-x-3">
-                <button
-                  onClick={confirmImportantNote}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Yes, Mark as Important
-                </button>
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowImportantConfirm(false);
                     setPendingNoteData(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={confirmImportantNote}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                >
+                  Yes, Mark as Important
                 </button>
               </div>
             </div>
           </div>
         )}
+
+        {/* Delete Note Confirmation Modal */}
+        {showDeleteModal && noteToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Delete Note</h3>
+                <button 
+                  onClick={cancelDeleteNote}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600">
+                  Are you sure you want to delete "<strong>{noteToDelete.title}</strong>"? 
+                  This action cannot be undone.
+                </p>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={cancelDeleteNote}
+                  disabled={deleteNoteMutation.isPending}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteNote}
+                  disabled={deleteNoteMutation.isPending}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteNoteMutation.isPending ? 'Deleting...' : 'Delete Note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Task Selection Modal */}
+        <TaskSelectionModal
+          isOpen={showTaskSelectionModal}
+          onClose={() => setShowTaskSelectionModal(false)}
+          onSelectTasks={handleTaskSelection}
+          tasks={formattedTasks}
+          selectedTaskIds={selectedTasks}
+        />
       </div>
     </Layout>
   );

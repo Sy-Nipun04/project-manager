@@ -4,15 +4,18 @@ import Task from '../models/Task.js';
 import Project from '../models/Project.js';
 import Notification from '../models/Notification.js';
 import { checkProjectAccess, checkProjectEditor, checkProjectAdmin, checkTaskEditor, checkTaskViewer } from '../middleware/auth.js';
+import { getSocketInstance } from '../config/socketInstance.js';
+import { emitToProject, emitToProjectMembers, emitNotification } from '../config/socket.js';
 
 const router = express.Router();
 
 // Get dashboard tasks (first doing task from 5 most recently updated projects)
 router.get('/dashboard', async (req, res) => {
   try {
-    // Get 5 most recently updated projects where user is a member
+    // Get 5 most recently updated NON-ARCHIVED projects where user is a member
     const projects = await Project.find({
-      'members.user': req.user._id
+      'members.user': req.user._id,
+      'settings.isArchived': false  // Exclude archived projects from dashboard
     })
     .select('_id name updatedAt')
     .sort({ updatedAt: -1 })
@@ -55,6 +58,7 @@ router.get('/project/:projectId', checkProjectAccess('viewer'), async (req, res)
     })
     .populate('assignedTo', 'fullName username email profileImage')
     .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage')
     .sort({ position: 1, createdAt: 1 });
 
     // Group tasks by column and maintain position order
@@ -162,7 +166,7 @@ router.post('/project/:projectId', checkProjectEditor, [
     try {
       for (const userId of assignedTo) {
         if (userId.toString() !== req.user._id.toString()) {
-          await Notification.create({
+          const notification = await Notification.create({
             user: userId,
             type: 'task_assigned',
             title: 'Task Assigned',
@@ -172,6 +176,9 @@ router.post('/project/:projectId', checkProjectEditor, [
               task: task._id
             }
           });
+
+          // Emit notification for real-time updates
+          emitNotification(getSocketInstance(), userId, notification);
         }
       }
     } catch (notificationError) {
@@ -187,7 +194,7 @@ router.post('/project/:projectId', checkProjectEditor, [
           .map(member => member.user);
 
         for (const memberId of memberIds) {
-          await Notification.create({
+          const notification = await Notification.create({
             user: memberId,
             type: 'high_priority_task_created',
             title: 'High Priority Task Created',
@@ -197,12 +204,27 @@ router.post('/project/:projectId', checkProjectEditor, [
               task: task._id
             }
           });
+          
+          // Emit notification for real-time updates
+          emitNotification(getSocketInstance(), memberId, notification);
         }
       } catch (notificationError) {
         console.error('Failed to create high priority task notifications:', notificationError);
         // Don't fail the task creation if notifications fail
       }
     }
+
+    // Emit real-time task created event
+
+    emitToProjectMembers(getSocketInstance(), req.params.projectId, 'task-created', {
+      task,
+      projectId: req.params.projectId,
+      createdBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.status(201).json({
       message: 'Task created successfully',
@@ -296,9 +318,25 @@ router.put('/:taskId/move', checkTaskEditor, [
       { new: true, runValidators: true }
     )
     .populate('assignedTo', 'fullName username email profileImage')
-    .populate('createdBy', 'fullName username email profileImage');
+    .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage');
 
     // No notifications for task movement
+
+    // Emit real-time task moved event
+
+    emitToProjectMembers(getSocketInstance(), task.project, 'task-moved', {
+      task: updatedTask,
+      taskId: task._id,
+      oldColumn,
+      newColumn: column,
+      projectId: task.project,
+      movedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.json({
       message: 'Task moved successfully',
@@ -359,7 +397,23 @@ router.put('/:taskId/reorder', checkTaskEditor, [
     // Get updated task with populated fields
     const updatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'fullName username email profileImage')
-      .populate('createdBy', 'fullName username email profileImage');
+      .populate('createdBy', 'fullName username email profileImage')
+      .populate('comments.user', 'fullName username email profileImage');
+
+    // Emit real-time task reordered event
+    emitToProjectMembers(getSocketInstance(), task.project, 'task-moved', {
+      task: updatedTask,
+      taskId: task._id,
+      startIndex,
+      finishIndex,
+      column,
+      projectId: task.project,
+      movedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.json({
       message: 'Task reordered successfully',
@@ -451,7 +505,8 @@ router.put('/:taskId', checkTaskEditor, [
       { new: true, runValidators: true }
     )
     .populate('assignedTo', 'fullName username email profileImage')
-    .populate('createdBy', 'fullName username email profileImage');
+    .populate('createdBy', 'fullName username email profileImage')
+    .populate('comments.user', 'fullName username email profileImage');
 
     // Create notification only if priority was changed to high
     if (priority === 'high' && task.priority !== 'high') {
@@ -461,7 +516,7 @@ router.put('/:taskId', checkTaskEditor, [
           .map(member => member.user);
 
         for (const memberId of memberIds) {
-          await Notification.create({
+          const notification = await Notification.create({
             user: memberId,
             type: 'high_priority_task_updated',
             title: 'Task Priority Changed to High',
@@ -471,12 +526,27 @@ router.put('/:taskId', checkTaskEditor, [
               task: task._id
             }
           });
+          
+          // Emit notification for real-time updates
+          emitNotification(getSocketInstance(), memberId, notification);
         }
       } catch (notificationError) {
         console.error('Failed to create high priority task update notifications:', notificationError);
         // Don't fail the task update if notifications fail
       }
     }
+
+    // Emit real-time task updated event
+
+    emitToProjectMembers(getSocketInstance(), task.project, 'task-updated', {
+      task: updatedTask,
+      projectId: task.project,
+      updatedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.json({
       message: 'Task updated successfully',
@@ -524,6 +594,19 @@ router.post('/:taskId/comments', checkTaskViewer, [
       { path: 'comments.user', select: 'fullName username email profileImage' }
     ]);
 
+    // Emit real-time task comment added event
+    emitToProjectMembers(getSocketInstance(), task.project, 'task-comment-added', {
+      task,
+      taskId: task._id,
+      comment: task.comments[task.comments.length - 1], // Get the newly added comment
+      projectId: task.project,
+      commentedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
+
     res.status(201).json({
       message: 'Comment added successfully',
       task: task
@@ -546,6 +629,17 @@ router.delete('/:taskId', checkTaskEditor, async (req, res) => {
     }
 
     await Task.findByIdAndDelete(req.params.taskId);
+
+    // Emit real-time task deleted event
+    emitToProjectMembers(getSocketInstance(), task.project, 'task-deleted', {
+      taskId: req.params.taskId,
+      projectId: task.project,
+      deletedBy: {
+        id: req.user._id,
+        name: req.user.fullName,
+        username: req.user.username
+      }
+    });
 
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
