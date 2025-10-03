@@ -1564,7 +1564,7 @@ router.get('/:projectId/tasks', checkProjectAccess('viewer'), async (req, res) =
     const tasks = await Task.find({
       project: req.params.projectId
     })
-    .select('title status')
+    .select('title description status column')
     .sort({ createdAt: -1 });
 
     res.json({ tasks });

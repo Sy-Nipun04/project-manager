@@ -25,6 +25,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkSolidIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
+import { TaskSelectionModal } from '../../components/notes/TaskSelectionModal';
 
 interface Note {
   _id: string;
@@ -51,11 +52,7 @@ interface Note {
   isBookmarked?: boolean;
 }
 
-interface Task {
-  _id: string;
-  title: string;
-  status: 'todo' | 'doing' | 'done';
-}
+
 
 interface Member {
   user: {
@@ -90,6 +87,9 @@ const ProjectNotesPage: React.FC = () => {
   const [noteType, setNoteType] = useState<'notice' | 'issue' | 'reminder' | 'important' | 'other'>('notice');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [taggedMembers, setTaggedMembers] = useState<Array<{_id: string; fullName: string; username: string}>>([]);
+  const [showTaskSelectionModal, setShowTaskSelectionModal] = useState(false);
 
   // Original values for change detection in edit mode
   const [originalTitle, setOriginalTitle] = useState('');
@@ -352,12 +352,36 @@ const ProjectNotesPage: React.FC = () => {
     );
   };
 
+  // Helper functions for member management
+  const addMember = (member: {_id: string; fullName: string; username: string}) => {
+    if (!taggedMembers.find(m => m._id === member._id)) {
+      const newTaggedMembers = [...taggedMembers, member];
+      setTaggedMembers(newTaggedMembers);
+      setSelectedMembers(newTaggedMembers.map(m => m._id));
+    }
+    setMemberSearch('');
+  };
+
+  const removeMember = (memberId: string) => {
+    const newTaggedMembers = taggedMembers.filter(m => m._id !== memberId);
+    setTaggedMembers(newTaggedMembers);
+    setSelectedMembers(newTaggedMembers.map(m => m._id));
+  };
+
+  // Helper function to handle task selection
+  const handleTaskSelection = (taskIds: string[]) => {
+    setSelectedTasks(taskIds);
+  };
+
   const resetForm = () => {
     setNoteTitle('');
     setNoteContent('');
     setNoteType('notice');
     setSelectedMembers([]);
     setSelectedTasks([]);
+    setMemberSearch('');
+    setTaggedMembers([]);
+    setShowTaskSelectionModal(false);
     
     // Clear original values for change detection
     setOriginalTitle('');
@@ -459,6 +483,7 @@ const ProjectNotesPage: React.FC = () => {
     setNoteType(note.type);
     setSelectedMembers(note.taggedMembers.map(m => m._id));
     setSelectedTasks(note.referencedTasks.map(t => t._id));
+    setTaggedMembers(note.taggedMembers);
     
     // Set original values for change detection
     setOriginalTitle(note.title);
@@ -528,6 +553,28 @@ const ProjectNotesPage: React.FC = () => {
   };
 
   const canCreateNotes = can.createNotes && can.createNotes();
+
+  // Filter members for search dropdown
+  const filteredMembers = project?.members?.filter((member: Member) => {
+    const searchLower = memberSearch.toLowerCase();
+    const alreadyTagged = taggedMembers.some(tagged => tagged._id === member.user._id);
+    const isCurrentUser = member.user._id === currentUser?.id;
+    return !alreadyTagged && !isCurrentUser && (
+      member.user.fullName.toLowerCase().includes(searchLower) ||
+      member.user.username.toLowerCase().includes(searchLower)
+    );
+  }) || [];
+
+  // Convert tasks format for TaskSelectionModal
+  const allTasks = tasks ? Object.values(tasks).flat() : [];
+  const formattedTasks = React.useMemo(() => {
+    return allTasks.map((task: any) => ({
+      _id: task._id,
+      title: task.title,
+      description: task.description || '',
+      column: task.column || 'todo'
+    }));
+  }, [allTasks]);
 
   if (isLoading) {
     return (
@@ -880,55 +927,112 @@ const ProjectNotesPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
-                      <label key={member.user._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(member.user._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMembers([...selectedMembers, member.user._id]);
-                            } else {
-                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{member.user.fullName}</span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Tagged Members Display */}
+                  {taggedMembers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {taggedMembers.map((member) => (
+                        <span
+                          key={member._id}
+                          className="inline-flex items-center gap-2 px-3 py-1 bg-teal-100 text-teal-800 text-sm rounded-full"
+                        >
+                          <div className="w-5 h-5 bg-teal-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                            {member.fullName.charAt(0)}
+                          </div>
+                          {member.fullName}
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member._id)}
+                            className="text-teal-600 hover:text-teal-800 ml-1"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Member Search */}
+                  {project.members && project.members.length > 0 && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        placeholder="Search members to tag..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                      />
+                      
+                      {/* Search Results */}
+                      {memberSearch && filteredMembers.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                          {filteredMembers.map((member: Member) => (
+                            <button
+                              key={member.user._id}
+                              type="button"
+                              onClick={() => addMember(member.user)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                            >
+                              <div className="w-6 h-6 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                {member.user.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{member.user.fullName}</div>
+                                <div className="text-xs text-gray-500">@{member.user.username}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {tasks?.map((task: Task) => (
-                      <label key={task._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedTasks.includes(task._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTasks([...selectedTasks, task._id]);
-                            } else {
-                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{task.title}</span>
-                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                          task.status === 'done' ? 'bg-green-100 text-green-800' :
-                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {task.status}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Selected Tasks Display */}
+                  {selectedTasks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {selectedTasks.map((taskId) => {
+                        const task = formattedTasks.find(t => t._id === taskId);
+                        if (!task) return null;
+                        return (
+                          <span
+                            key={taskId}
+                            className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full"
+                          >
+                            <TagIcon className="w-4 h-4" />
+                            {task.title}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTasks(prev => prev.filter(id => id !== taskId))}
+                              className="text-green-600 hover:text-green-800 ml-1"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Select Tasks Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowTaskSelectionModal(true)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-left text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        {selectedTasks.length > 0 
+                          ? `${selectedTasks.length} task${selectedTasks.length !== 1 ? 's' : ''} selected`
+                          : 'Select tasks to reference...'
+                        }
+                      </span>
+                      <TagIcon className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </button>
                 </div>
 
                 <div className="flex space-x-3 pt-4">
@@ -1012,55 +1116,112 @@ const ProjectNotesPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Members (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {project.members?.filter((member: Member) => member.user._id !== currentUser?.id).map((member: Member) => (
-                      <label key={member.user._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(member.user._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMembers([...selectedMembers, member.user._id]);
-                            } else {
-                              setSelectedMembers(selectedMembers.filter(id => id !== member.user._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{member.user.fullName}</span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Tagged Members Display */}
+                  {taggedMembers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {taggedMembers.map((member) => (
+                        <span
+                          key={member._id}
+                          className="inline-flex items-center gap-2 px-3 py-1 bg-teal-100 text-teal-800 text-sm rounded-full"
+                        >
+                          <div className="w-5 h-5 bg-teal-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                            {member.fullName.charAt(0)}
+                          </div>
+                          {member.fullName}
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member._id)}
+                            className="text-teal-600 hover:text-teal-800 ml-1"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Member Search */}
+                  {project.members && project.members.length > 0 && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        placeholder="Search members to tag..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                      />
+                      
+                      {/* Search Results */}
+                      {memberSearch && filteredMembers.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                          {filteredMembers.map((member: Member) => (
+                            <button
+                              key={member.user._id}
+                              type="button"
+                              onClick={() => addMember(member.user)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                            >
+                              <div className="w-6 h-6 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                {member.user.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{member.user.fullName}</div>
+                                <div className="text-xs text-gray-500">@{member.user.username}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Reference Tasks (Optional)</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {tasks?.map((task: Task) => (
-                      <label key={task._id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedTasks.includes(task._id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTasks([...selectedTasks, task._id]);
-                            } else {
-                              setSelectedTasks(selectedTasks.filter(id => id !== task._id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
-                        <span className="text-sm">{task.title}</span>
-                        <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                          task.status === 'done' ? 'bg-green-100 text-green-800' :
-                          task.status === 'doing' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {task.status}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  
+                  {/* Selected Tasks Display */}
+                  {selectedTasks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {selectedTasks.map((taskId) => {
+                        const task = formattedTasks.find(t => t._id === taskId);
+                        if (!task) return null;
+                        return (
+                          <span
+                            key={taskId}
+                            className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full"
+                          >
+                            <TagIcon className="w-4 h-4" />
+                            {task.title}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTasks(prev => prev.filter(id => id !== taskId))}
+                              className="text-green-600 hover:text-green-800 ml-1"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Select Tasks Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowTaskSelectionModal(true)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-left text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        {selectedTasks.length > 0 
+                          ? `${selectedTasks.length} task${selectedTasks.length !== 1 ? 's' : ''} selected`
+                          : 'Select tasks to reference...'
+                        }
+                      </span>
+                      <TagIcon className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </button>
                 </div>
 
                 <div className="flex space-x-3 pt-4">
@@ -1164,6 +1325,15 @@ const ProjectNotesPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Task Selection Modal */}
+        <TaskSelectionModal
+          isOpen={showTaskSelectionModal}
+          onClose={() => setShowTaskSelectionModal(false)}
+          onSelectTasks={handleTaskSelection}
+          tasks={formattedTasks}
+          selectedTaskIds={selectedTasks}
+        />
       </div>
     </Layout>
   );
