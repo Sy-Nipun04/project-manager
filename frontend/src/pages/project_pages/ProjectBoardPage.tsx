@@ -84,17 +84,17 @@ const ProjectBoardPage: React.FC = () => {
 
     // Check if project is archived before joining room
     if (project?.settings?.isArchived) {
-      console.log('⚠️ ProjectBoardPage: Project is archived, not joining room and redirecting with page refresh');
+
       window.location.href = '/dashboard';
       return;
     }
 
     // Join project room for real-time updates
-    console.log('🔌 ProjectBoardPage: Joining project room for project:', projectId);
+
     socket.emit('join_project', projectId);
 
     const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Project deleted event received in ProjectBoardPage:', data);
+
       if (data.project === projectId || data.projectId === projectId) {
         toast.error('This project has been deleted');
         window.location.href = '/projects';

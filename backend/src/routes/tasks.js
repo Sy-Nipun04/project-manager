@@ -215,7 +215,7 @@ router.post('/project/:projectId', checkProjectEditor, [
     }
 
     // Emit real-time task created event
-    console.log('📡 Emitting task-created event for project:', req.params.projectId);
+
     emitToProjectMembers(getSocketInstance(), req.params.projectId, 'task-created', {
       task,
       projectId: req.params.projectId,
@@ -324,7 +324,7 @@ router.put('/:taskId/move', checkTaskEditor, [
     // No notifications for task movement
 
     // Emit real-time task moved event
-    console.log('📡 Emitting task-moved event for project:', task.project);
+
     emitToProjectMembers(getSocketInstance(), task.project, 'task-moved', {
       task: updatedTask,
       taskId: task._id,
@@ -537,7 +537,7 @@ router.put('/:taskId', checkTaskEditor, [
     }
 
     // Emit real-time task updated event
-    console.log('📡 Emitting task-updated event for project:', task.project);
+
     emitToProjectMembers(getSocketInstance(), task.project, 'task-updated', {
       task: updatedTask,
       projectId: task.project,

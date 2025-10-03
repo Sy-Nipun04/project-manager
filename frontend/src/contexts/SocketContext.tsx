@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -41,7 +41,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       });
 
       newSocket.on('connect', () => {
-        console.log('🟢 Socket connected to server:', newSocket.id);
+
         setIsConnected(true);
         
         // Invalidate all queries when socket connects to ensure fresh data
@@ -68,7 +68,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       });
 
       newSocket.on('disconnect', () => {
-        console.log('Disconnected from server');
+
         setIsConnected(false);
       });
 
@@ -97,7 +97,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   useEffect(() => {
     if (!socket || !user || !isConnected) return;
 
-    console.log('🌐 Setting up global socket listeners for real-time updates');
+
 
     // Project Info Updates - Global listener
     const handleProjectInfoUpdate = (data: any) => {
@@ -111,8 +111,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     };
 
     const handleProjectDeleted = (data: any) => {
-      const startTime = performance.now();
-      console.log('⏱️ Deletion event received at:', new Date().toISOString());
       const projectId = data.project || data.projectId;
       
       if (projectId) {
@@ -129,8 +127,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
                                window.location.pathname.includes(`project/${projectId}`);
         
         if (isViewingProject) {
-          console.log('🚀 Navigating to dashboard immediately, processing time:', performance.now() - startTime, 'ms');
-          
           // Use window.location for immediate redirect with page refresh
           console.log('🔄 Using window.location.href for immediate redirect with page refresh');
           window.location.href = '/dashboard';
@@ -151,7 +147,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     // Team Member Updates - Global listener
     const handleMemberAdded = (data: any) => {
-      console.log('👥 Global: Member added', data);
+
       if (data.projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', data.projectId] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -161,9 +157,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     };
 
     const handleMemberRemoved = (data: any) => {
-      console.log('👥 Global: Member removed', data);
-      console.log('🔍 Member removal - current user.id:', user?.id, 'vs removed member.id:', data.memberId);
-      console.log('🌍 Current pathname:', window.location.pathname);
+
       if (data.projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', data.projectId] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -174,10 +168,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         // Compare both string formats to handle ObjectId vs string differences
         const isRemovedUser = data.memberId === user?.id || data.memberId?.toString() === user?.id?.toString() || 
                              data.member?.id === user?.id || data.member?.id?.toString() === user?.id?.toString();
-        console.log('🔍 Is removed user?', isRemovedUser, 'Comparisons:', {
-          'data.memberId === user.id': data.memberId === user?.id,
-          'data.member.id === user.id': data.member?.id === user?.id
-        });
+
         
         if (isRemovedUser) {
           const isViewingProject = window.location.pathname.includes(`/project/${data.projectId}`) || 
@@ -198,7 +189,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     };
 
     const handleRoleChanged = (data: any) => {
-      console.log('🔐 Global: Role changed', data);
+
       if (data.projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', data.projectId] });
         queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -209,12 +200,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     const handleProjectUpdated = (data: any) => {
       const projectId = data.project?._id || data.project || data.projectId;
       
-      console.log('📦 SocketContext: Project updated event received:', {
-        rawData: data,
-        extractedProjectId: projectId,
-        updateType: data.updateType,
-        currentPath: window.location.pathname
-      });
+
       
       if (projectId) {
         queryClient.invalidateQueries({ queryKey: ['project', projectId] });
@@ -222,9 +208,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         
         // Handle special update types
         if (data.updateType === 'archived') {
-          const startTime = performance.now();
-          console.log('⏱️ Archive event received at:', new Date().toISOString());
-          
           // Always invalidate dashboard tasks when project is archived
           queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
           
@@ -235,20 +218,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
           const isViewingProject = window.location.pathname.includes(`/project/${projectId}`) || 
                                  window.location.pathname.includes(`project/${projectId}`);
           
-          console.log('🔍 Path check:', {
-            currentPath: window.location.pathname,
-            projectId,
-            isViewingProject,
-            pathIncludes1: window.location.pathname.includes(`/project/${projectId}`),
-            pathIncludes2: window.location.pathname.includes(`project/${projectId}`),
-            fullUrl: window.location.href
-          });
+
           
           if (isViewingProject) {
-            console.log('🚀 Navigating to dashboard immediately, processing time:', performance.now() - startTime, 'ms');
+
             
             // Use window.location for immediate redirect to avoid race conditions
-            console.log('🔄 Using window.location.href for immediate redirect');
+
             window.location.href = '/dashboard';
             
             // Fallback with React Router navigation in case window.location fails
@@ -309,29 +285,29 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
 
     // Notification Updates - Global listener (for hybrid notifications)
-    const handleNotificationReceived = (notification: any) => {
-      console.log('🔔 Global: Notification received', notification);
+    const handleNotificationReceived = (_notification: any) => {
+
       queryClient.invalidateQueries({ queryKey: ['notifications', user.id] });
     };
 
     // Friends Updates - Global listener
     const handleFriendsUpdated = () => {
-      console.log('👥 Global: Friends updated');
+
       queryClient.invalidateQueries({ queryKey: ['friends', user.id] });
       queryClient.invalidateQueries({ queryKey: ['friend-requests', user.id] });
     };
 
     // Task Updates - Global listener
     const handleTaskUpdate = () => {
-      console.log('📋 Global: Task updated');
+
       // Invalidate all task-related queries
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
     };
 
     // Project Creation - Global listener
-    const handleProjectCreated = (data: any) => {
-      console.log('🆕 Global: Project created', data);
+    const handleProjectCreated = (_data: any) => {
+
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['projects', user.id] });
     };

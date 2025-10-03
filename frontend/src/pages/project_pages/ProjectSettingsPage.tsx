@@ -429,19 +429,19 @@ const ProjectSettingsPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !projectId) return;
 
-    console.log('⚙️ ProjectSettingsPage: Joining project room:', projectId);
+
 
     // Handle archive events
     const handleProjectUpdated = (data: any) => {
       if (data.updateType === 'archived') {
-        console.log('📦 ProjectSettingsPage: Project archived, redirecting with page refresh');
+
         window.location.href = '/dashboard';
       }
     };
 
     const handleProjectDeleted = (data: any) => {
       if (data.project === projectId || data.projectId === projectId) {
-        console.log('🗑️ ProjectSettingsPage: Project deleted, redirecting with page refresh');
+
         window.location.href = '/dashboard';
       }
     };
@@ -454,7 +454,7 @@ const ProjectSettingsPage: React.FC = () => {
     socket.on('project_deleted', handleProjectDeleted);
 
     return () => {
-      console.log('⚙️ ProjectSettingsPage: Leaving project room:', projectId);
+
       socket.off('project_updated', handleProjectUpdated);
       socket.off('project_deleted', handleProjectDeleted);
       socket.emit('leave_project', projectId);

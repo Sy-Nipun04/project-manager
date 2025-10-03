@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
-import api from '../../lib/api';
+import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -104,10 +104,10 @@ const ProjectsPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !currentUser) return;
 
-    console.log('📋 ProjectsPage: Setting up socket listeners for user:', currentUser.id);
+
 
     const handleProjectCreated = (data: any) => {
-      console.log('📋 Project created event received:', data);
+
       // Only refresh if the user is a member of the new project
       if (data.project?.members?.some((member: any) => member.user._id === currentUser.id || member.user === currentUser.id)) {
         invalidateProjects();
@@ -116,7 +116,7 @@ const ProjectsPage: React.FC = () => {
     };
 
     const handleProjectUpdated = (data: any) => {
-      console.log('📋 Project updated event received:', data);
+
       invalidateProjects();
       
       if (data.updateType === 'name') {
@@ -125,7 +125,7 @@ const ProjectsPage: React.FC = () => {
     };
 
     const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Project deleted event received:', data);
+
       invalidateProjects();
       toast.error(`Project "${data.projectName}" has been deleted`);
     };
@@ -140,16 +140,16 @@ const ProjectsPage: React.FC = () => {
     // Member update listeners removed - now using React Query polling
     // Hybrid approach: Long polling + instant cache updates
     socket.on('member_added', () => {
-      console.log('📋 Cache invalidation: member_added');
+
       invalidateProjects();
     });
     socket.on('member_removed', () => {
-      console.log('📋 Cache invalidation: member_removed');
+
       invalidateProjects();
     });
 
     return () => {
-      console.log('📋 ProjectsPage: Cleaning up socket listeners');
+
       socket.off('project_created', handleProjectCreated);
       socket.off('project_updated', handleProjectUpdated);
       socket.off('project_deleted', handleProjectDeleted);

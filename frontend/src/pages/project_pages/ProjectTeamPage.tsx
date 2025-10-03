@@ -81,13 +81,13 @@ const ProjectTeamPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !projectId) return;
 
-    console.log('🚀 ProjectTeamPage: Setting up socket listeners for project:', projectId);
+
 
     // Socket handlers for info updates removed - now using React Query polling
     // Team info will be updated through React Query refetch mechanisms
 
     const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Project deleted event received:', data);
+
       if (data.project === projectId || data.projectId === projectId) {
         queryClient.removeQueries({ queryKey: ['project', projectId] });
         toast.error('This project has been deleted');
@@ -114,13 +114,13 @@ const ProjectTeamPage: React.FC = () => {
     socket.on('project_updated', (data) => {
       // Handle archive events
       if (data.updateType === 'archived') {
-        console.log('📦 ProjectTeamPage: Project archived, redirecting with page refresh');
+
         window.location.href = '/dashboard';
         return;
       }
       
       if (data.type === 'member_added' || data.type === 'member_removed' || data.type === 'role_changed') {
-        console.log('👥 Cache invalidation: project_updated -', data.type);
+
         invalidateProject();
       }
     });

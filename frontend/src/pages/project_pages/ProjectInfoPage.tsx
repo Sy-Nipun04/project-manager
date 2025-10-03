@@ -50,7 +50,7 @@ const ProjectInfoPage: React.FC = () => {
       return response.data.project;
     },
     onSuccess: (updatedProject) => {
-      console.log('Updated project:', updatedProject);
+
       queryClient.setQueryData(['project', projectId], updatedProject);
       invalidateProject();
       toast.success('Project details updated successfully');
@@ -77,7 +77,7 @@ const ProjectInfoPage: React.FC = () => {
       return response.data.project;
     },
     onSuccess: (updatedProject) => {
-      console.log('Project info updated:', updatedProject);
+
       queryClient.setQueryData(['project', projectId], updatedProject);
       invalidateProject();
       
@@ -124,12 +124,12 @@ const ProjectInfoPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !projectId) return;
 
-    console.log('📋 ProjectInfoPage: Setting up socket listeners for project:', projectId);
+
 
     // Project info update handler removed - now using React Query polling
 
     const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Project deleted event received:', data);
+
       if (data.project === projectId || data.projectId === projectId) {
         queryClient.removeQueries({ queryKey: ['project', projectId] });
         toast.error('This project has been deleted');
@@ -145,20 +145,20 @@ const ProjectInfoPage: React.FC = () => {
     socket.on('project_updated', (data) => {
       // Handle archive events
       if (data.updateType === 'archived') {
-        console.log('📦 ProjectInfoPage: Project archived, redirecting with page refresh');
+
         window.location.href = '/dashboard';
         return;
       }
       
       if (data.type !== 'archive' && data.type !== 'delete') {
-        console.log('📄 Cache invalidation: project info updated');
+
         invalidateProject();
       }
     });
     socket.on('project_deleted', handleProjectDeleted);
 
     return () => {
-      console.log('📋 ProjectInfoPage: Cleaning up socket listeners');
+
       socket.off('project_updated'); // Info updates removed
       socket.off('project_deleted', handleProjectDeleted);
       socket.emit('leave_project', projectId);
@@ -170,7 +170,7 @@ const ProjectInfoPage: React.FC = () => {
     const currentContent = project?.markdownContent || '';
     setMarkdownContent(currentContent);
     setIsEditingDetails(true);
-    console.log('Starting edit with content:', currentContent);
+
   };
 
   const handleSaveDetails = () => {
@@ -184,7 +184,7 @@ const ProjectInfoPage: React.FC = () => {
       updateProjectDetailsMutation.mutate(markdownContent);
     } else {
       setIsEditingDetails(false);
-      console.log('No changes detected, not saving');
+
     }
   };
 
@@ -192,7 +192,7 @@ const ProjectInfoPage: React.FC = () => {
     const currentContent = project?.markdownContent || '';
     setMarkdownContent(currentContent);
     setIsEditingDetails(false);
-    console.log('Cancelled edit, reset to:', currentContent);
+
   };
 
   // Handlers for project information editing

@@ -87,14 +87,14 @@ export const SidebarProvider: React.FC<SidebarProviderProps> = ({ children }) =>
   const validateSelectedProject = (availableProjects: Project[]) => {
     // If no projects available and there's a selected project, clear it
     if (availableProjects.length === 0 && selectedProject) {
-      console.log('No projects available, clearing selected project');
+
       setSelectedProject(null);
       return;
     }
     
     // If selected project doesn't exist in available projects, clear it
     if (selectedProject && !availableProjects.find(p => p._id === selectedProject._id)) {
-      console.log('Selected project no longer exists in available projects, clearing selection');
+
       setSelectedProject(null);
     }
   };
@@ -114,7 +114,7 @@ export const SidebarProvider: React.FC<SidebarProviderProps> = ({ children }) =>
     window.clearProjectData = () => {
       localStorage.removeItem('selectedProject');
       setSelectedProject(null);
-      console.log('Project data cleared from localStorage');
+
     };
     
     return () => {

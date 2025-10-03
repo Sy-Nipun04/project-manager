@@ -11,7 +11,7 @@ export const cleanupOldNotifications = async () => {
     });
     
     if (result.deletedCount > 0) {
-      console.log(`Cleaned up ${result.deletedCount} old notifications`);
+
     }
     
     return result.deletedCount;
@@ -29,5 +29,5 @@ export const startNotificationCleanup = () => {
   // Then run every 24 hours
   setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
   
-  console.log('Notification cleanup scheduler started');
+
 };

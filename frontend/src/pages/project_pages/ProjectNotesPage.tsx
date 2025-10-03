@@ -167,7 +167,7 @@ const ProjectNotesPage: React.FC = () => {
   useEffect(() => {
     if (!socket || !projectId) return;
 
-    console.log('🔗 Setting up note socket listeners for project:', projectId);
+
 
     // Join project room for real-time updates
     socket.emit('join_project', projectId);

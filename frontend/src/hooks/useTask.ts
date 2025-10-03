@@ -290,7 +290,7 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
     if (!socket || !projectId) return;
 
     // Join project room for real-time updates
-    console.log('🔗 Joining project room:', projectId);
+
     socket.emit('join_project', projectId);
 
     // Listen for task updates
@@ -317,7 +317,7 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
     };
 
     const handleTaskMoved = (data: { taskId: string; oldColumn: string; newColumn: string; task: Task }) => {
-      console.log('🔄 Received task-moved event:', data);
+
       // Update specific task in cache
       queryClient.setQueryData(['task', data.taskId], data.task);
       // Invalidate tasks list
@@ -331,7 +331,7 @@ export const useRealTimeTaskUpdates = (projectId: string) => {
     };
 
     const handleProjectDeleted = (data: any) => {
-      console.log('🗑️ Project deleted event received in useRealTimeTaskUpdates:', data);
+
       if (data.project === projectId || data.projectId === projectId) {
         // Clear all project-related queries
         queryClient.removeQueries({ queryKey: ['project', projectId] });
