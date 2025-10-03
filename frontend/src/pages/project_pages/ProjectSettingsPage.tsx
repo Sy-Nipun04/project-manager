@@ -914,7 +914,20 @@ const ProjectSettingsPage: React.FC = () => {
             }}
           >
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Invite Team Member</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+                <button 
+                  onClick={() => {
+                    setShowInviteModal(false);
+                    setInviteEmail('');
+                    setInviteRole('viewer');
+                    setShowSuggestions(false);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               <p className="text-sm text-gray-600 mb-4">
                 Send an invitation to join this project. The user will receive a notification and can accept or decline the invitation.
               </p>
@@ -1001,14 +1014,7 @@ const ProjectSettingsPage: React.FC = () => {
                   </select>
                 </div>
                 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={inviteMemberMutation.isPending}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                  >
-                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -1017,9 +1023,16 @@ const ProjectSettingsPage: React.FC = () => {
                       setInviteRole('viewer');
                       setShowSuggestions(false);
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={inviteMemberMutation.isPending}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {inviteMemberMutation.isPending ? 'Sending Invite...' : 'Send Invitation'}
                   </button>
                 </div>
               </form>
@@ -1183,20 +1196,20 @@ const ProjectSettingsPage: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowRoleChangeModal(false);
                     setPendingRoleChange(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmRoleChange}
                   disabled={updateMemberRoleMutation.isPending}
-                  className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 transition-colors"
                 >
                   {updateMemberRoleMutation.isPending ? 'Updating...' : 'Confirm Change'}
                 </button>
@@ -1241,20 +1254,20 @@ const ProjectSettingsPage: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowRemoveMemberModal(false);
                     setMemberToRemove(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmRemoveMember}
                   disabled={removeMemberMutation.isPending}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
                   {removeMemberMutation.isPending ? 'Removing...' : (memberToRemove.isCurrentUser ? 'Leave Project' : 'Remove Member')}
                 </button>

@@ -874,7 +874,18 @@ const ProjectNotesPage: React.FC = () => {
         {showCreateModal && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Create Note</h3>
+                <button 
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    resetForm();
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               
               <form onSubmit={handleCreateNote} className="space-y-4">
                 <div>
@@ -1035,23 +1046,23 @@ const ProjectNotesPage: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={createNoteMutation.isPending}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-                  >
-                    {createNoteMutation.isPending ? 'Creating...' : 'Create Note'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreateModal(false);
                       resetForm();
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createNoteMutation.isPending}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    {createNoteMutation.isPending ? 'Creating...' : 'Create Note'}
                   </button>
                 </div>
               </form>
@@ -1063,7 +1074,18 @@ const ProjectNotesPage: React.FC = () => {
         {showEditModal && editingNote && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Note</h3>
+                <button 
+                  onClick={() => {
+                    setShowEditModal(false);
+                    resetForm();
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
               
               <form onSubmit={handleEditNote} className="space-y-4">
                 <div>
@@ -1224,16 +1246,7 @@ const ProjectNotesPage: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={updateNoteMutation.isPending || !hasChanges()}
-                    className="flex-1 bg-teal-600 text-white py-2 px-4 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title={!hasChanges() && !updateNoteMutation.isPending ? 'No changes to save' : ''}
-                  >
-                    {updateNoteMutation.isPending ? 'Updating...' : 
-                     !hasChanges() ? 'No Changes' : 'Update Note'}
-                  </button>
+                <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -1241,9 +1254,18 @@ const ProjectNotesPage: React.FC = () => {
                       setEditingNote(null);
                       resetForm();
                     }}
-                    className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={updateNoteMutation.isPending || !hasChanges()}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title={!hasChanges() && !updateNoteMutation.isPending ? 'No changes to save' : ''}
+                  >
+                    {updateNoteMutation.isPending ? 'Updating...' : 
+                     !hasChanges() ? 'No Changes' : 'Update Note'}
                   </button>
                 </div>
               </form>
@@ -1255,30 +1277,41 @@ const ProjectNotesPage: React.FC = () => {
         {showImportantConfirm && (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <div className="flex items-center space-x-3 mb-4">
-                <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
-                <h3 className="text-lg font-semibold text-gray-900">Important Note</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
+                  <h3 className="text-lg font-semibold text-gray-900">Important Note</h3>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowImportantConfirm(false);
+                    setPendingNoteData(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
               </div>
               
               <p className="text-gray-600 mb-6">
                 Marking this note as "Important" will notify all project members. Are you sure you want to continue?
               </p>
               
-              <div className="flex space-x-3">
-                <button
-                  onClick={confirmImportantNote}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Yes, Mark as Important
-                </button>
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowImportantConfirm(false);
                     setPendingNoteData(null);
                   }}
-                  className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={confirmImportantNote}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                >
+                  Yes, Mark as Important
                 </button>
               </div>
             </div>

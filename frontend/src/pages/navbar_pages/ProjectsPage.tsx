@@ -7,7 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useProjects } from '../../hooks/useProject';
 import { useSocket } from '../../contexts/SocketContext';
 import toast from 'react-hot-toast';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon, XMarkIcon, DocumentTextIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 
 interface User {
   _id: string;
@@ -331,35 +331,77 @@ const ProjectsPage: React.FC = () => {
         {/* Create Project Form */}
         {showCreateForm && (
           <div 
-            className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+            className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
                 setShowFriendsSuggestions(false);
               }
             }}
           >
-            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-              <div className="mt-3">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Create New Project</h3>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden">
+              {/* Modal Header */}
+              <div className="px-6 py-5 bg-gradient-to-r from-teal-50 to-blue-50 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="flex items-center justify-center w-10 h-10 bg-teal-100 rounded-full">
+                      <PlusIcon className="h-5 w-5 text-teal-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-semibold text-gray-900">Create New Project</h3>
+                      <p className="text-sm text-gray-600">Set up a new project and invite your team</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setCreateFormData({ name: '', description: '', memberEmails: [] });
+                      setMemberEmailInput('');
+                      setShowFriendsSuggestions(false);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 hover:bg-white rounded-full p-2 transition-colors"
+                  >
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Modal Content */}
+              <div className="p-6">
                 
-                <form onSubmit={handleCreateProject} className="space-y-4">
-                  <div>
-                    <label htmlFor="projectName" className="block text-sm font-medium text-gray-700">
+                <form onSubmit={handleCreateProject} className="space-y-6">
+                  {/* Project Name Field */}
+                  <div className="space-y-2">
+                    <label htmlFor="projectName" className="flex items-center text-sm font-semibold text-gray-800">
+                      <span className="flex items-center justify-center w-5 h-5 bg-teal-100 rounded mr-2">
+                        <span className="w-2 h-2 bg-teal-500 rounded"></span>
+                      </span>
                       Project Name *
                     </label>
-                    <input
-                      type="text"
-                      id="projectName"
-                      value={createFormData.name}
-                      onChange={(e) => setCreateFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 sm:text-sm"
-                      placeholder="Enter project name"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        id="projectName"
+                        value={createFormData.name}
+                        onChange={(e) => setCreateFormData(prev => ({ ...prev, name: e.target.value }))}
+                        className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm placeholder-gray-400"
+                        placeholder="Enter a descriptive project name"
+                        required
+                      />
+                      <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                        <div className={`w-2 h-2 rounded-full transition-colors ${
+                          createFormData.name.trim() ? 'bg-green-400' : 'bg-gray-300'
+                        }`}></div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 pl-7">Choose a clear and memorable name for your project</p>
                   </div>
 
-                  <div>
-                    <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
+                  {/* Description Field */}
+                  <div className="space-y-2">
+                    <label htmlFor="projectDescription" className="flex items-center text-sm font-semibold text-gray-800">
+                      <span className="flex items-center justify-center w-5 h-5 bg-blue-100 rounded mr-2">
+                        <DocumentTextIcon className="w-3 h-3 text-blue-500" />
+                      </span>
                       Description (Optional)
                     </label>
                     <textarea
@@ -367,39 +409,48 @@ const ProjectsPage: React.FC = () => {
                       rows={3}
                       value={createFormData.description}
                       onChange={(e) => setCreateFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 sm:text-sm"
-                      placeholder="Project description..."
+                      className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm placeholder-gray-400 resize-none"
+                      placeholder="Briefly describe what this project is about..."
                     />
+                    <div className="flex justify-between items-center pl-7">
+                      <p className="text-xs text-gray-500">Help your team understand the project's purpose</p>
+                      <span className="text-xs text-gray-400">{createFormData.description.length}/500</span>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {/* Team Members Section */}
+                  <div className="space-y-3">
+                    <label className="flex items-center text-sm font-semibold text-gray-800">
+                      <span className="flex items-center justify-center w-5 h-5 bg-purple-100 rounded mr-2">
+                        <UserGroupIcon className="w-3 h-3 text-purple-500" />
+                      </span>
                       Invite Team Members (Optional)
                     </label>
-                    <div className="relative">
-                      <div className="flex space-x-2">
+                    
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="flex space-x-2 mb-3">
                         <div className="flex-1 relative">
                           <input
                             type="text"
                             value={memberEmailInput}
                             onChange={handleMemberInputChange}
                             onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addMemberEmail())}
-                            className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 sm:text-sm"
+                            className="block w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm placeholder-gray-400 bg-white"
                             placeholder="Enter email, username, or search friends..."
                             onFocus={() => memberEmailInput.length > 0 && setShowFriendsSuggestions(true)}
                           />
                           
                           {/* Friends suggestions dropdown */}
                           {showFriendsSuggestions && filteredFriends.length > 0 && (
-                            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-xl max-h-60 overflow-auto">
                               {filteredFriends.map((friend) => (
                                 <div
                                   key={friend._id}
                                   onClick={() => addFriendToProject(friend)}
-                                  className="px-4 py-2 hover:bg-gray-50 cursor-pointer flex items-center space-x-3"
+                                  className="px-4 py-3 hover:bg-teal-50 cursor-pointer flex items-center space-x-3 transition-colors border-b border-gray-100 last:border-b-0"
                                 >
-                                  <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center">
-                                    <span className="text-sm font-medium text-teal-800">
+                                  <div className="h-8 w-8 rounded-full bg-gradient-to-r from-teal-400 to-blue-500 flex items-center justify-center shadow-sm">
+                                    <span className="text-sm font-medium text-white">
                                       {friend.fullName.charAt(0).toUpperCase()}
                                     </span>
                                   </div>
@@ -415,51 +466,86 @@ const ProjectsPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={addMemberEmail}
-                          className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-gray-50 hover:bg-gray-100"
+                          className="px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium shadow-sm"
                         >
                           Add
                         </button>
                       </div>
-                    </div>
-                    
-                    {createFormData.memberEmails.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {createFormData.memberEmails.map((email, index) => (
-                          <div key={index} className="flex items-center justify-between bg-gray-50 px-2 py-1 rounded">
-                            <span className="text-sm text-gray-700">{email}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeMemberEmail(email)}
-                              className="text-red-600 hover:text-red-800 text-sm"
-                            >
-                              Remove
-                            </button>
+                      
+                      {createFormData.memberEmails.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-600 font-medium">Invited Members:</p>
+                          <div className="grid gap-2">
+                            {createFormData.memberEmails.map((email, index) => (
+                              <div key={index} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="flex items-center space-x-2">
+                                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
+                                    <span className="text-xs font-medium text-gray-600">
+                                      {email.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <span className="text-sm text-gray-700 font-medium">{email}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeMemberEmail(email)}
+                                  className="text-red-500 hover:text-red-700 transition-colors p-1 rounded-full hover:bg-red-50"
+                                  title="Remove member"
+                                >
+                                  <XMarkIcon className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">You can add team members now or invite them later from project settings</p>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex justify-end space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowCreateForm(false);
-                        setCreateFormData({ name: '', description: '', memberEmails: [] });
-                        setMemberEmailInput('');
-                        setShowFriendsSuggestions(false);
-                      }}
-                      className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={createProjectMutation.isPending || !createFormData.name.trim()}
-                      className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {createProjectMutation.isPending ? 'Creating...' : 'Create Project'}
-                    </button>
+                  {/* Modal Footer */}
+                  <div className="flex justify-between items-center pt-6 border-t border-gray-100 mt-6">
+                    <div className="text-xs text-gray-500">
+                      <span className="inline-flex items-center">
+                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1"></span>
+                        Project will be created instantly
+                      </span>
+                    </div>
+                    <div className="flex space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateForm(false);
+                          setCreateFormData({ name: '', description: '', memberEmails: [] });
+                          setMemberEmailInput('');
+                          setShowFriendsSuggestions(false);
+                        }}
+                        className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={createProjectMutation.isPending || !createFormData.name.trim()}
+                        className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-lg hover:from-teal-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl text-sm font-semibold flex items-center space-x-2"
+                      >
+                        {createProjectMutation.isPending ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <PlusIcon className="h-4 w-4" />
+                            <span>Create Project</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </form>
               </div>
