@@ -7,7 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useProjects } from '../../hooks/useProject';
 import { useSocket } from '../../contexts/SocketContext';
 import toast from 'react-hot-toast';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon, XMarkIcon, DocumentTextIcon, UserGroupIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon, ArchiveBoxIcon, MagnifyingGlassIcon, XMarkIcon, DocumentTextIcon, UserGroupIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 
 interface User {
   _id: string;
@@ -338,9 +338,9 @@ const ProjectsPage: React.FC = () => {
               }
             }}
           >
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
               {/* Modal Header */}
-              <div className="px-6 py-5 bg-gradient-to-r from-teal-50 to-blue-50 border-b border-gray-100">
+              <div className="px-6 py-5 bg-gradient-to-r from-teal-50 to-blue-50 border-b border-gray-100 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <div className="flex items-center justify-center w-10 h-10 bg-teal-100 rounded-full">
@@ -365,10 +365,10 @@ const ProjectsPage: React.FC = () => {
                 </div>
               </div>
               
-              {/* Modal Content */}
-              <div className="p-6">
+              {/* Modal Content - Scrollable */}
+              <div className="p-6 flex-1 overflow-y-auto">
                 
-                <form onSubmit={handleCreateProject} className="space-y-6">
+                <form id="create-project-form" onSubmit={handleCreateProject} className="space-y-6">
                   {/* Project Name Field */}
                   <div className="space-y-2">
                     <label htmlFor="projectName" className="flex items-center text-sm font-semibold text-gray-800">
@@ -385,6 +385,7 @@ const ProjectsPage: React.FC = () => {
                         onChange={(e) => setCreateFormData(prev => ({ ...prev, name: e.target.value }))}
                         className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm placeholder-gray-400"
                         placeholder="Enter a descriptive project name"
+                        maxLength={100}
                         required
                       />
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3">
@@ -393,7 +394,13 @@ const ProjectsPage: React.FC = () => {
                         }`}></div>
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 pl-7">Choose a clear and memorable name for your project</p>
+                    <div className="flex justify-between items-center pl-7">
+                      <p className="text-xs text-gray-500">Choose a clear and memorable name for your project</p>
+                      <span className={`text-xs transition-colors ${
+                        createFormData.name.length > 90 ? 'text-red-500 font-medium' : 
+                        createFormData.name.length > 80 ? 'text-orange-500' : 'text-gray-400'
+                      }`}>{createFormData.name.length}/100</span>
+                    </div>
                   </div>
 
                   {/* Description Field */}
@@ -504,50 +511,54 @@ const ProjectsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Modal Footer */}
-                  <div className="flex justify-between items-center pt-6 border-t border-gray-100 mt-6">
-                    <div className="text-xs text-gray-500">
-                      <span className="inline-flex items-center">
-                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1"></span>
-                        Project will be created instantly
-                      </span>
-                    </div>
-                    <div className="flex space-x-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateForm(false);
-                          setCreateFormData({ name: '', description: '', memberEmails: [] });
-                          setMemberEmailInput('');
-                          setShowFriendsSuggestions(false);
-                        }}
-                        className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={createProjectMutation.isPending || !createFormData.name.trim()}
-                        className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-lg hover:from-teal-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl text-sm font-semibold flex items-center space-x-2"
-                      >
-                        {createProjectMutation.isPending ? (
-                          <>
-                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Creating...
-                          </>
-                        ) : (
-                          <>
-                            <PlusIcon className="h-4 w-4" />
-                            <span>Create Project</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
                 </form>
+              </div>
+              
+              {/* Modal Footer - Fixed at bottom */}
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <div className="text-xs text-gray-500">
+                    <span className="inline-flex items-center">
+                      <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1"></span>
+                      Project will be created instantly
+                    </span>
+                  </div>
+                  <div className="flex space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCreateForm(false);
+                        setCreateFormData({ name: '', description: '', memberEmails: [] });
+                        setMemberEmailInput('');
+                        setShowFriendsSuggestions(false);
+                      }}
+                      className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      form="create-project-form"
+                      disabled={createProjectMutation.isPending || !createFormData.name.trim()}
+                      className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-lg hover:from-teal-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl text-sm font-semibold flex items-center space-x-2"
+                    >
+                      {createProjectMutation.isPending ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <PlusIcon className="h-4 w-4" />
+                          <span>Create Project</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -589,22 +600,18 @@ const ProjectsPage: React.FC = () => {
             
             return filteredProjects.map((project: Project) => (
               <div key={project._id} className="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div
-                  className="p-6 cursor-pointer hover:bg-gray-50"
-                  onClick={() => toggleProjectExpansion(project._id)}
-                >
+                <div className="p-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3">
-                        <h3 className="text-lg font-medium text-gray-900">{project.name}</h3>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
+                    <div 
+                      className="flex-1 cursor-pointer hover:bg-gray-50 -m-2 p-2 rounded-lg transition-colors"
+                      onClick={() => toggleProjectExpansion(project._id)}
+                    >
+                      <div className="flex items-start space-x-3 min-w-0">
+                        <h3 className="text-lg font-medium text-gray-900 break-words leading-tight max-w-xs min-w-0">{project.name}</h3>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800 flex-shrink-0">
                           {project.members.length} member{project.members.length !== 1 ? 's' : ''}
                         </span>
                       </div>
-                      
-                      {project.description && (
-                        <p className="mt-1 text-sm text-gray-600 truncate">{project.description}</p>
-                      )}
                       
                       <div className="mt-2 flex items-center space-x-4 text-sm text-gray-500">
                         <div className="flex items-center">
@@ -618,12 +625,30 @@ const ProjectsPage: React.FC = () => {
                       </div>
                     </div>
                     
-                    <div className="ml-4">
-                      {expandedProjects.has(project._id) ? (
-                        <ChevronDownIcon className="h-5 w-5 text-gray-400" />
-                      ) : (
-                        <ChevronRightIcon className="h-5 w-5 text-gray-400" />
-                      )}
+                    <div className="flex items-center space-x-3 ml-4">
+                      {/* Go to Project Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/project/${project._id}/board`);
+                        }}
+                        className="inline-flex items-center px-3 py-2 border border-teal-300 text-sm font-medium rounded-md text-teal-700 bg-teal-50 hover:bg-teal-100 hover:border-teal-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors"
+                      >
+                        <ArrowRightIcon className="h-4 w-4 mr-1.5" />
+                        Go to project
+                      </button>
+                      
+                      {/* Expand/Collapse Icon */}
+                      <button
+                        onClick={() => toggleProjectExpansion(project._id)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        {expandedProjects.has(project._id) ? (
+                          <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+                        ) : (
+                          <ChevronRightIcon className="h-5 w-5 text-gray-400" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -651,7 +676,7 @@ const ProjectsPage: React.FC = () => {
                           {project.description && (
                             <div>
                               <span className="font-medium text-gray-700">Description:</span>
-                              <p className="text-gray-600 mt-1">{project.description}</p>
+                              <p className="text-gray-600 mt-1 break-words leading-relaxed max-w-sm">{project.description}</p>
                             </div>
                           )}
                         </div>

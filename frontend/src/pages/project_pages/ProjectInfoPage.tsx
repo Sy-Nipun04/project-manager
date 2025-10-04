@@ -277,18 +277,18 @@ const ProjectInfoPage: React.FC = () => {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <InformationCircleIcon className="h-6 w-6 text-green-600" />
+        <div className="flex items-start justify-between">
+          <div className="flex items-start space-x-4 min-w-0 flex-1">
+            <div className="p-3 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-xl shadow-sm">
+              <InformationCircleIcon className="h-7 w-7 text-blue-600" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-bold text-gray-900">Project Information</h1>
               <p className="text-gray-600">
-                Project Information & Details
+                Essential details and documentation
                 {userRole && (
                   <span className="ml-2 text-sm">
-                    ({getRoleDisplayInfo(userRole).label} access)
+                    (You have {getRoleDisplayInfo(userRole).label} access)
                   </span>
                 )}
               </p>
@@ -313,59 +313,86 @@ const ProjectInfoPage: React.FC = () => {
           {/* Main Info */}
           <div className="lg:col-span-2 space-y-6">
             {/* Basic Information */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              {/* Header with gradient */}
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                  <InformationCircleIcon className="h-5 w-5 text-blue-600 mr-2" />
+            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+              {/* Header with enhanced gradient */}
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-6 py-5 border-b border-gray-150">
+                <h2 className="text-xl font-bold text-gray-900">
                   Basic Information
                 </h2>
               </div>
               
-              <div className="p-6">
+              <div className="p-6 bg-gradient-to-br from-white to-gray-50/30">
                 <div className="grid grid-cols-1 gap-6">
                   {/* Project Name */}
-                  <div className="relative">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-500 uppercase tracking-wide">Project Name</label>
-                      <div className="h-px bg-gray-200 flex-1 ml-4"></div>
+                  <div className="relative group">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+                        Project Name
+                      </label>
+                      <div className="h-px bg-gradient-to-r from-blue-200 to-transparent flex-1 ml-4"></div>
                     </div>
-                    <div className="mt-2 p-3 bg-gray-50 rounded-lg border-l-4 border-blue-500">
-                      <p className="text-xl font-bold text-gray-900">{project.name}</p>
+                    <div className="relative overflow-hidden rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 group-hover:shadow-md transition-all duration-200">
+                      <div className="p-4">
+                        <h3 className="text-gray-700 leading-relaxed break-words text-base">{project.name}</h3>
+                        <p className="text-xs text-blue-600/70 mt-1 font-medium">{project.name.length}/100 characters</p>
+                      </div>
                     </div>
                   </div>
 
                   {/* Description */}
-                  <div className="relative">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-500 uppercase tracking-wide">Description</label>
-                      <div className="h-px bg-gray-200 flex-1 ml-4"></div>
+                  <div className="relative group">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                        Description
+                      </label>
+                      <div className="h-px bg-gradient-to-r from-green-200 to-transparent flex-1 ml-4"></div>
                     </div>
-                    <div className="mt-2 p-4 bg-gray-50 rounded-lg border-l-4 border-green-500">
-                      <p className="text-gray-700 leading-relaxed">
-                        {project.description || (
-                          <span className="italic text-gray-500">No description provided.</span>
+                    <div className="relative overflow-hidden rounded-xl border border-green-100 bg-gradient-to-r from-green-50 to-emerald-50 group-hover:shadow-md transition-all duration-200">
+                      <div className="p-4">
+                        {project.description ? (
+                          <>
+                            <p className="text-gray-700 leading-relaxed break-words text-base">{project.description}</p>
+                            <p className="text-xs text-green-600/70 mt-2 font-medium">{project.description.length}/500 characters</p>
+                          </>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-gray-500">
+                            <div className="w-4 h-4 rounded-full bg-gray-300 flex items-center justify-center">
+                              <span className="text-xs font-bold text-white">?</span>
+                            </div>
+                            <span className="italic text-sm">No description provided.</span>
+                          </div>
                         )}
-                      </p>
+                      </div>
                     </div>
                   </div>
 
                   {/* Created By */}
-                  <div className="relative">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-500 uppercase tracking-wide">Created By</label>
-                      <div className="h-px bg-gray-200 flex-1 ml-4"></div>
+                  <div className="relative group">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center">
+                        <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+                        Created By
+                      </label>
+                      <div className="h-px bg-gradient-to-r from-purple-200 to-transparent flex-1 ml-4"></div>
                     </div>
-                    <div className="mt-2 p-3 bg-gray-50 rounded-lg border-l-4 border-purple-500">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-medium text-sm">
-                            {project.creator?.fullName?.charAt(0) || 'U'}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-900">{project.creator?.fullName || 'Unknown'}</p>
-                          <p className="text-sm text-gray-500">@{project.creator?.username || 'unknown'}</p>
+                    <div className="relative overflow-hidden rounded-xl border border-purple-100 bg-gradient-to-r from-purple-50 to-pink-50 group-hover:shadow-md transition-all duration-200">
+                      <div className="p-4">
+                        <div className="flex items-center space-x-4">
+                          <div className="relative">
+                            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg">
+                              <span className="text-white font-bold text-lg">
+                                {project.creator?.fullName?.charAt(0)?.toUpperCase() || 'U'}
+                              </span>
+                            </div>
+                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-gray-900 text-lg break-words">{project.creator?.fullName || 'Unknown User'}</p>
+                            <p className="text-sm text-purple-600 font-medium">@{project.creator?.username || 'unknown'}</p>
+                            <p className="text-xs text-gray-500 mt-1">Project Creator & Administrator</p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -378,7 +405,7 @@ const ProjectInfoPage: React.FC = () => {
                         <label className="text-sm font-medium text-gray-500 uppercase tracking-wide">Created</label>
                         <div className="h-px bg-gray-200 flex-1 ml-4"></div>
                       </div>
-                      <div className="mt-2 p-3 bg-gray-50 rounded-lg border-l-4 border-teal-500">
+                      <div className="mt-2 p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center space-x-2">
                           <div className="w-2 h-2 bg-teal-500 rounded-full"></div>
                           <p className="font-medium text-gray-900">
@@ -403,7 +430,7 @@ const ProjectInfoPage: React.FC = () => {
                         <label className="text-sm font-medium text-gray-500 uppercase tracking-wide">Last Updated</label>
                         <div className="h-px bg-gray-200 flex-1 ml-4"></div>
                       </div>
-                      <div className="mt-2 p-3 bg-gray-50 rounded-lg border-l-4 border-orange-500">
+                      <div className="mt-2 p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center space-x-2">
                           <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                           <p className="font-medium text-gray-900">
@@ -658,7 +685,7 @@ const ProjectInfoPage: React.FC = () => {
       {/* Name Change Confirmation Modal */}
       {showNameChangeConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center">
@@ -680,12 +707,17 @@ const ProjectInfoPage: React.FC = () => {
               </div>
 
               <div className="mb-4">
-                <p className="text-sm text-gray-600">
-                  You are about to change the project name from{' '}
-                  <span className="font-semibold">"{project?.name}"</span> to{' '}
-                  <span className="font-semibold">"{projectName}"</span>.
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  You are about to change the project name from:
                 </p>
-                <p className="text-sm text-gray-600 mt-2">
+                <div className="my-3 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm font-semibold text-gray-900 break-words leading-tight">"{project?.name}"</p>
+                </div>
+                <p className="text-sm text-gray-600 mb-2">to:</p>
+                <div className="mb-3 p-3 bg-amber-50 rounded-lg">
+                  <p className="text-sm font-semibold text-gray-900 break-words leading-tight">"{projectName}"</p>
+                </div>
+                <p className="text-sm text-gray-600">
                   All project members will be notified of this change. Are you sure you want to continue?
                 </p>
               </div>
