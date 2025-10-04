@@ -246,16 +246,6 @@ const CollapsibleSidebar: React.FC = () => {
         <div className="p-4 border-b border-gray-200">
           {isOpen ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">Project Board</h2>
-                <button
-                  onClick={toggleSidebar}
-                  className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <ChevronLeftIcon className="h-4 w-4 text-gray-600" />
-                </button>
-              </div>
-              
               {/* Project Selector Dropdown */}
               <div className="relative" ref={dropdownRef}>
                 <div className="flex items-center border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-teal-500 focus-within:border-transparent">
@@ -275,13 +265,21 @@ const CollapsibleSidebar: React.FC = () => {
                   {/* Dropdown Toggle Button */}
                   <button
                     onClick={handleDropdownToggle}
-                    className="p-2 hover:bg-gray-50 rounded-r-lg transition-colors"
+                    className="p-2 hover:bg-gray-50 transition-colors"
                   >
                     {isDropdownOpen ? (
                       <ChevronUpIcon className="h-4 w-4 text-gray-500" />
                     ) : (
                       <ChevronDownIcon className="h-4 w-4 text-gray-500" />
                     )}
+                  </button>
+                  
+                  {/* Sidebar Collapse Button */}
+                  <button
+                    onClick={toggleSidebar}
+                    className="p-2 hover:bg-gray-50 rounded-r-lg transition-colors border-l border-gray-300"
+                  >
+                    <ChevronLeftIcon className="h-4 w-4 text-gray-600" />
                   </button>
                 </div>
 
@@ -394,7 +392,7 @@ const CollapsibleSidebar: React.FC = () => {
         {isOpen && selectedProject && projects?.find((p: any) => p._id === selectedProject._id) && (
           <div className="border-t border-gray-200 p-4">
             <div className="text-xs text-gray-500">
-              <p className="font-medium mb-1">{selectedProject.name}</p>
+              <p className="font-medium mb-1 truncate" title={selectedProject.name}>{selectedProject.name}</p>
               <p>Members: {selectedProject.members?.length || 0}</p>
             </div>
           </div>

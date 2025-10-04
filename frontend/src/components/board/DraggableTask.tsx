@@ -112,13 +112,19 @@ export const DraggableTask: React.FC<DraggableTaskProps> = ({
         className={`
           bg-white border border-gray-200 rounded-lg p-3 mb-3 shadow-sm 
           hover:shadow-md transition-all duration-200 cursor-pointer relative
+          w-full min-w-0
           ${isDragging ? 'opacity-50 rotate-2 scale-105' : ''}
           ${isDisabled ? 'cursor-not-allowed opacity-75' : 'hover:border-gray-300'}
           ${closestEdge ? 'ring-2 ring-blue-200' : ''}
         `}
       >
       {/* Task Title */}
-      <h3 className="font-medium text-gray-900 mb-3 line-clamp-2">
+      <h3 className="font-medium text-gray-900 mb-3 break-words overflow-hidden text-ellipsis line-clamp-2" 
+          style={{ 
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical'
+          }}>
         {task.title}
       </h3>
 
@@ -147,21 +153,21 @@ export const DraggableTask: React.FC<DraggableTaskProps> = ({
 
       {/* Tagged Members */}
       {task.assignedTo && task.assignedTo.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
+        <div className="flex flex-wrap gap-1 mb-2 min-w-0">
           {task.assignedTo.slice(0, 4).map((user: any) => (
             <span
               key={user._id}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-teal-100 text-teal-800 text-xs rounded-full"
+              className="inline-flex items-center gap-1 px-2 py-1 bg-teal-100 text-teal-800 text-xs rounded-full flex-shrink-0"
               title={user.fullName}
             >
               <div className="w-3 h-3 bg-teal-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
                 {user.fullName.charAt(0)}
               </div>
-              <span className="max-w-[60px] truncate">{user.fullName}</span>
+              <span className="max-w-[50px] truncate">{user.fullName}</span>
             </span>
           ))}
           {task.assignedTo.length > 4 && (
-            <span className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+            <span className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full flex-shrink-0">
               +{task.assignedTo.length - 4}
             </span>
           )}

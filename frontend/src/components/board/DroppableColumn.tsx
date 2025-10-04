@@ -48,7 +48,7 @@ export const DroppableColumn: React.FC<DroppableColumnProps> = ({
   }, [columnId]);
 
   const getColumnStyles = () => {
-    const baseStyles = 'flex-1 min-h-[500px] bg-gray-50 rounded-lg border-2 border-dashed transition-all duration-200';
+    const baseStyles = 'w-80 min-h-[500px] bg-gray-50 rounded-lg border-2 border-dashed transition-all duration-200 flex-shrink-0';
     
     if (isDropTarget) {
       return `${baseStyles} border-blue-400 bg-blue-50`;

@@ -32,7 +32,7 @@ import {
 import { useProject } from '../../hooks/useProject';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSocket } from '../../contexts/SocketContext';
-import { CogIcon } from '@heroicons/react/24/outline';
+import { CogIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 type ColumnType = 'todo' | 'doing' | 'done';
@@ -486,21 +486,27 @@ const ProjectBoardPage: React.FC = () => {
 
   return (
     <Layout>
-      <div className="space-y-6">
+      <div className="space-y-6 w-full max-w-none">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{project.name}</h1>
-            <p className="text-gray-600 mt-1">Project Board</p>
-            {userRole && (
-              <p className="text-sm text-gray-500">
-                Your role: <span className="capitalize">{userRole}</span>
-                {isViewer && ' (View only)'}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <Squares2X2Icon className="h-6 w-6 text-blue-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-bold text-gray-900">Project Board</h1>
+              <p className="text-gray-600">
+                Kanban board: Drag and drop tasks to manage workflow
+                {userRole && (
+                  <span className="ml-2 text-sm">
+                    (You have {userRole} access{isViewer ? ' - View only' : ''})
+                  </span>
+                )}
               </p>
-            )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {/* Create Task Button */}
             {can.createTasks() && (
               <button
@@ -528,7 +534,7 @@ const ProjectBoardPage: React.FC = () => {
         </div>
 
         {/* Board Columns */}
-        <div className={`flex gap-6 overflow-x-auto pb-4 transition-all duration-200 ${
+        <div className={`flex gap-8 overflow-x-auto pb-4 transition-all duration-200 w-full justify-center ${
           isDragging ? 'bg-gray-50 rounded-lg p-2' : ''
         }`}>
           {boardData.orderedColumnIds.map((columnId) => (
@@ -546,8 +552,8 @@ const ProjectBoardPage: React.FC = () => {
         </div>
 
         {/* Task Statistics */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="grid grid-cols-4 gap-4 text-center">
+        <div className="bg-white rounded-lg border border-gray-200 p-6 w-full">
+          <div className="grid grid-cols-4 gap-8 text-center max-w-4xl mx-auto">
             <div>
               <p className="text-2xl font-bold text-gray-900">{tasks.length}</p>
               <p className="text-sm text-gray-600">Total Tasks</p>
